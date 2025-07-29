@@ -1,1 +1,1 @@
-# high-level-dyn-circ-opt
+# High-level Dynamic Circuits optimizer
