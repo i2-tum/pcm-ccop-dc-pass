@@ -7,7 +7,7 @@ from typing import Dict, Tuple, List, Optional, Union
 import numpy as np
 
 StateKey = Tuple[bool, ...]
-EPS = 1e-20 # Numerical tolerance
+EPS = 1e-12 # Numerical tolerance
 
 class QubitState:
     # State: mapping from bit-tuples to amplitude
@@ -40,7 +40,7 @@ class QubitState:
         return self.__str__()
 
     def __eq__(self, other: 'QubitState') -> bool:
-        if not other.is_qubit_state():
+        if not isinstance(other, QubitState):
             return False
         if self.n_qubits != other.n_qubits or self.size() != other.size():
             return False
@@ -234,26 +234,47 @@ class QubitState:
     def combine(qs1: 'QubitState', indices1: List[int], qs2: 'QubitState', indices2: List[int]) -> 'QubitState':
         # interlace sorted indices
         interlace = []
-        i1, i2 = 0, 0
-        while i1 < len(indices1) or i2 < len(indices2):
-            if i2 >= len(indices2) or (i1 < len(indices1) and indices1[i1] < indices2[i2]):
+        while indices1 or indices2:
+            if not indices1:
+                interlace.append(False)
+                indices2.pop(0)
+                continue
+
+            if not indices2:
                 interlace.append(True)
-                i1 += 1
+                indices1.pop(0)
+                continue
+
+            if indices1[0] < indices2[0]:
+                interlace.append(True)
+                indices1.pop(0)
             else:
                 interlace.append(False)
-                i2 += 1
-        new_qs = QubitState(qs1.n_qubits + qs2.n_qubits)
+                indices2.pop(0)
+
+        new_size = qs1.n_qubits + qs2.n_qubits
+        new_qs = QubitState(new_size)
         new_qs.clear()
-        for k1, v1 in qs1.state.items():
-            for k2, v2 in qs2.state.items():
-                new_key = []
-                ptr1 = ptr2 = 0
-                for flag in interlace:
-                    if flag:
-                        new_key.append(k1[ptr1]); ptr1 += 1
+
+        for key1, val1 in qs1.state.items():
+            for key2, val2 in qs2.state.items():
+                # 1. buffer booleans della lunghezza finale
+                new_key = [False] * new_size
+                next_bit_new = 0
+                next_bit1 = 0
+                next_bit2 = 0
+
+                for next_is_from1 in interlace:
+                    if next_is_from1:
+                        new_key[next_bit_new] = key1[next_bit1]
+                        next_bit1 += 1
                     else:
-                        new_key.append(k2[ptr2]); ptr2 += 1
-                new_qs.state[tuple(new_key)] = v1 * v2
+                        new_key[next_bit_new] = key2[next_bit2]
+                        next_bit2 += 1
+                    next_bit_new += 1 
+
+                new_qs.state[tuple(new_key)] = val1 * val2
+
         return new_qs
     
     def always_activated(self, indices: List[int]) -> bool:

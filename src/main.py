@@ -1,10 +1,12 @@
 from qiskit import QuantumCircuit
 from ConstantPropagation import ConstantPropagation
 
-qc = QuantumCircuit(3)
+qc = QuantumCircuit(5)
 qc.h(0)
+qc.z(2)
+qc.x(1)
 qc.cx(0, 1)
-qc.barrier()
+# qc.cx(0, 1)
 qc.cx(0, 2)
 
 table, new_qc = ConstantPropagation.propagate(qc)

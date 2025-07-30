@@ -1,7 +1,7 @@
 from typing import List, Tuple, Dict, Optional
 from copy import deepcopy
 
-from QuState import QubitState, QubitStateOrTop
+from QuState import QubitState, QubitStateOrTop, EPS
 from util.ActivationState import *
 
 class UnionTable:
@@ -32,7 +32,7 @@ class UnionTable:
             return
         target_state = self.qu_reg[qubit].get_qubit_state()
         for i, reg in enumerate(self.qu_reg):
-            if not reg.is_top() and reg.get_qubit_state() == target_state:
+            if not reg.is_top() and id(reg.get_qubit_state()) == id(target_state):
                 self.qu_reg[i] = QubitStateOrTop()  # TOP
 
     def index_in_state(self, qubit: int) -> int:
@@ -55,7 +55,7 @@ class UnionTable:
     def qubits_in_state(self, state: QubitState) -> List[int]:
         return [
             i for i, reg in enumerate(self.qu_reg)
-            if reg.is_qubit_state() and reg.get_qubit_state() == state
+            if reg.is_qubit_state() and id(reg.get_qubit_state()) == id(state)
         ]
 
     def purity_test(self, qubit: int) -> bool:
@@ -90,25 +90,16 @@ class UnionTable:
             r = v0 / v1
             if ratio is None:
                 ratio = r
-            elif abs(r - ratio) > 1e-12:
+            elif abs(r - ratio) > EPS:
                 return False
 
         return True
 
     def combine(self, qubit1, qubit2_or_list) -> None:
-        # Combine(list of qubits)
-        if isinstance(qubit1, list):
-            qubits = qubit1.copy()
-            if len(qubits) < 2:
-                return
-            first, *rest = qubits
-            for q in rest:
-                self.combine(first, q)
-            return
-
         # Combine(int, list)
         if isinstance(qubit2_or_list, list):
-            self.combine([qubit1], qubit2_or_list)
+            for q in qubit2_or_list:
+                self.combine(qubit1, q)
             return
 
         # Combine two ints
@@ -125,7 +116,7 @@ class UnionTable:
             return
 
         qs1, qs2 = r1.get_qubit_state(), r2.get_qubit_state()
-        if qs1 == qs2:
+        if id(qs1) == id(qs2):
             return
 
         idxs1 = self.qubits_in_state(qs1)
@@ -229,7 +220,7 @@ class UnionTable:
         new_qs.normalize()
 
         for i, r in enumerate(self.qu_reg):
-            if r.is_qubit_state() and r.get_qubit_state() == qs:
+            if r.is_qubit_state() and id(r.get_qubit_state()) == id(qs):
                 self.qu_reg[i] = QubitStateOrTop(new_qs)
 
     def separate(self, qubit: int) -> None:
@@ -251,7 +242,7 @@ class UnionTable:
 
         # Reassign entangled partners
         for i in range(self.n_qubits):
-            if i != qubit and self.qu_reg[i].is_qubit_state() and self.qu_reg[i].get_qubit_state() == qs:
+            if i != qubit and self.qu_reg[i].is_qubit_state() and id(self.qu_reg[i].get_qubit_state()) == id(qs):
                 self.qu_reg[i] = QubitStateOrTop(new_rest)
 
         # Single‐qubit state for `qubit`

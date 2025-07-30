@@ -58,14 +58,12 @@ class ConstantPropagation:
         max_amplitudes = max_amplitudes or cls.MAX_AMPLITUDES
         table = table or UnionTable(circuit.num_qubits)
 
-        flat = circuit.decompose(reps=2)
-
         # Prepare new circuit
-        new_circ = QuantumCircuit(flat.qubits, flat.clbits)
+        new_circ = QuantumCircuit(circuit.qubits, circuit.clbits)
 
         # Walk through instructions
-        for instr, qargs, cargs in flat.data:
-            q_indices = [q.index for q in qargs]
+        for instr, qargs, cargs in circuit.data:
+            q_indices = [q._index for q in qargs]
             name_lc = instr.name.lower()
 
             cls._check_amplitudes(table, max_amplitudes)
