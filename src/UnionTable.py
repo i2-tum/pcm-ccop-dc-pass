@@ -41,10 +41,11 @@ class UnionTable:
         if reg.is_top():
             return 0
         target = reg.get_qubit_state()
+
         idx = 0
         for i in range(qubit):
             r = self.qu_reg[i]
-            if not r.is_top() and r.get_qubit_state() == target:
+            if not r.is_top() and id(r.get_qubit_state()) == id(target):
                 idx += 1
         return idx
 
