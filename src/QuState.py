@@ -102,10 +102,9 @@ class QubitState:
         return self._probability_measure_x(index, True)
 
     def _probability_measure_x(self, index: int, x: bool) -> float:
-        prob = sum(abs(v)**2 for k, v in self.state.items() if k[index] == x)
         if all(k[index] == x for k in self.state):
             return 1.0
-        return prob
+        return sum(abs(v)**2 for k, v in self.state.items() if k[index] == x)
 
     def amplitudes(self, index: int) -> Tuple[complex, complex]:
         if self.n_qubits == 1:

@@ -221,7 +221,7 @@ class UnionTable:
 
         for i, r in enumerate(self.qu_reg):
             if r.is_qubit_state() and id(r.get_qubit_state()) == id(qs):
-                self.qu_reg[i] = QubitStateOrTop(new_qs)
+                self.qu_reg[i] = new_qs
 
     def separate(self, qubit: int) -> None:
         reg = self.qu_reg[qubit]
@@ -243,7 +243,7 @@ class UnionTable:
         # Reassign entangled partners
         for i in range(self.n_qubits):
             if i != qubit and self.qu_reg[i].is_qubit_state() and id(self.qu_reg[i].get_qubit_state()) == id(qs):
-                self.qu_reg[i] = QubitStateOrTop(new_rest)
+                self.qu_reg[i] = new_rest
 
         # Single‐qubit state for `qubit`
         single = QubitState(1)
