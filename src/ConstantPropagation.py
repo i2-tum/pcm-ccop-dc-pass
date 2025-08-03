@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from typing import List, Tuple, Sequence
 
-from qiskit import QuantumCircuit
+from qiskit import QuantumCircuit, transpile
 from qiskit.circuit import Instruction, ControlledGate, Gate, Qubit, Clbit
 from qiskit.quantum_info import Operator
+from qiskit.circuit.library import StatePreparation, XGate
+
+import numpy as np
 
 from UnionTable import UnionTable
 from util.ActivationState import ActivationState
@@ -54,7 +57,7 @@ class ConstantPropagation:
     MAX_AMPLITUDES: int = 32
     
     @classmethod
-    def propagate(cls, circuit: QuantumCircuit, max_amplitudes: int | None = None, table: UnionTable | None = None) -> Tuple[UnionTable, QuantumCircuit]:
+    def propagate(cls, circuit: QuantumCircuit, max_amplitudes: int | None = None, max_ent_group_size = 1, table: UnionTable | None = None) -> Tuple[UnionTable, QuantumCircuit]:
         max_amplitudes = max_amplitudes or cls.MAX_AMPLITUDES
         table = table or UnionTable(circuit.num_qubits)
 
@@ -92,9 +95,38 @@ class ConstantPropagation:
                 continue
 
             if name_lc == RESET_NAME:
-                if q_indices:
-                    table.reset_state(q_indices[0])
-                new_circ.append(instr, qargs, cargs)
+                ind = q_indices[0]
+                if not table.purity_test(ind):
+                    if table[ind].is_qubit_state() and table[ind].get_qubit_state().get_n_qubits() <= max_ent_group_size:
+                        # Perform rotation from the current state to |0...0>
+                        state_vecor =  table[ind].get_qubit_state().to_state_vector()
+                        for x in cls._prepare_state(state_vecor, True).data:
+                            new_circ.append(x)
+                        
+                        # Reset ind-th qubit
+                        table.reset_state(ind)
+
+                        # Add gates to perform rotation from state |0...0> to the state before reset where the ind-qubit is |0>
+
+                        for q in table[ind].get_qubit_state():
+                            table.separate(q)
+                    else:
+                        if table[ind].is_qubit_state():
+                            table.set_top(ind)
+                        new_circ.append(instr, qargs, cargs)
+
+                elif table[ind].is_qubit_state():
+                    _prob_meas_0 = table[ind].get_qubit_state().probability_measure_zero()
+                    _prob_meas_1 = table[ind].get_qubit_state().probability_measure_one()
+                    if _prob_meas_1 == 1.0: # Qubit is in the state |1>
+                        new_circ.append(XGate(), [ind]) # Apply X(ind) -> |0>
+                    elif _prob_meas_0 != 1.0 and _prob_meas_1 != 1.0: 
+                        state_vecor =  table[ind].get_qubit_state().to_state_vector()
+                        for x in cls._prepare_state(state_vecor, True).data:
+                            new_circ.append(x)
+                
+                
+                table.reset_state(ind) # Set to |0> the state of the resetted qubit
                 continue
 
             # Determine control and target qubits
@@ -139,9 +171,9 @@ class ConstantPropagation:
         return table, new_circ
 
     @classmethod
-    def optimise(cls, circuit: QuantumCircuit, max_amplitudes: int | None = None) -> None:
+    def optimise(cls, circuit: QuantumCircuit, max_amplitudes: int | None = None, max_ent_group_size = 1) -> None:
         """Perform constant-propagation in-place on *circuit."""
-        _, new_circ = cls.propagate(circuit, max_amplitudes, emit_optimised_circuit=True)
+        _, new_circ = cls.propagate(circuit, max_amplitudes, max_ent_group_size, emit_optimised_circuit=True)
 
         circuit.data.clear()
         circuit.append(new_circ.data)
@@ -204,3 +236,23 @@ class ConstantPropagation:
         new_qargs = ctrl_qubits + target_qubits
 
         return new_gate, new_qargs
+    
+    
+    @staticmethod
+    def _prepare_state(state_vector, inverse = False) -> QuantumCircuit:
+        # Ensure the input state is normalized
+        state_vector = state_vector / np.linalg.norm(state_vector)
+        # Get the number of qubits needed (log2 of the length of state_vector)
+        n = int(np.log2(len(state_vector)))
+        # Create a QuantumCircuit with n qubits
+        qc = QuantumCircuit(n)
+        state_preparation = StatePreparation(state_vector)
+        # Append the state preparation to the quantum circuit
+        qc.append(state_preparation, range(n))
+        # Decompose the state preparation into individual gates
+        #qc = transpile(qc, basis_gates=['h', 'cx', 'rz', 'ry'])
+
+        if inverse:
+            return qc.inverse()
+        else:
+            return qc
