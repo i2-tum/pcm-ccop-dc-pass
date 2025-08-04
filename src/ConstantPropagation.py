@@ -44,6 +44,7 @@ IGNORED_GATES: set[str] = {
 UNSUPPORTED_GATES: set[str] = {
     "peres", "peresdg",
     "atru", "afalse", "multi_atru", "multi_afalse",
+    "if_else"
 }
 
 RESET_NAME = "reset"
@@ -65,7 +66,11 @@ class ConstantPropagation:
         new_circ = QuantumCircuit(circuit.qubits, circuit.clbits)
 
         # Walk through instructions
-        for instr, qargs, cargs in circuit.data:
+        for inst in circuit.data:
+            instr = inst.operation
+            qargs = inst.qubits
+            cargs = inst.clbits
+
             q_indices = [q._index for q in qargs]
             name_lc = instr.name.lower()
 
@@ -82,13 +87,14 @@ class ConstantPropagation:
                 continue
 
             # Unsupported or classically-controlled operations
-            if name_lc in UNSUPPORTED_GATES or instr.condition is not None:
+            if name_lc in UNSUPPORTED_GATES:
                 for t in q_indices:
                     table.set_top(t)
                 new_circ.append(instr, qargs, cargs)
                 continue
 
             if name_lc == MEASURE_NAME:
+                c_indices = [c._index for c in cargs]
                 if q_indices:
                     table.set_top(q_indices[0]) # Meassurement operations involve only one qubit
                 new_circ.append(instr, qargs, cargs)
