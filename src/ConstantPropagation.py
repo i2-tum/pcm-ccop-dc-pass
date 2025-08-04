@@ -177,7 +177,7 @@ class ConstantPropagation:
         return table, new_circ
 
     @classmethod
-    def optimise(cls, circuit: QuantumCircuit, max_amplitudes: int | None = None, max_ent_group_size = 1) -> None:
+    def optimize(cls, circuit: QuantumCircuit, max_amplitudes: int | None = None, max_ent_group_size = 1) -> None:
         """Perform constant-propagation in-place on *circuit."""
         _, new_circ = cls.propagate(circuit, max_amplitudes, max_ent_group_size, emit_optimised_circuit=True)
 
