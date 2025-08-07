@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Tuple, Sequence
+from typing import List, Tuple, Sequence, Optional
 
 from qiskit import QuantumCircuit, transpile
 from qiskit.circuit import Instruction, ControlledGate, Gate, Qubit, Clbit
@@ -11,6 +11,8 @@ import numpy as np
 
 from UnionTable import UnionTable
 from util.ActivationState import ActivationState
+from util.BitState import BitState
+from util.ProbabilisticGate import ProbabilisticGate
 from QuState import EPS
 
 __all__ = ["ConstantPropagation"]
@@ -44,12 +46,12 @@ IGNORED_GATES: set[str] = {
 UNSUPPORTED_GATES: set[str] = {
     "peres", "peresdg",
     "atru", "afalse", "multi_atru", "multi_afalse",
-    "if_else"
 }
 
 RESET_NAME = "reset"
 MEASURE_NAME = "measure"
 SWAP_NAME = "swap"
+IF_ELSE_NAME = "if_else"
 
 # ConstantPropagation main class
 class ConstantPropagation:
@@ -60,6 +62,8 @@ class ConstantPropagation:
     @classmethod
     def propagate(cls, circuit: QuantumCircuit, max_amplitudes: int | None = None, max_ent_group_size = 1, table: UnionTable | None = None) -> Tuple[UnionTable, QuantumCircuit]:
         max_amplitudes = max_amplitudes or cls.MAX_AMPLITUDES
+
+        clbit_states: dict[Clbit, BitState] = {}
         table = table or UnionTable(circuit.num_qubits)
 
         # Prepare new circuit
@@ -76,8 +80,7 @@ class ConstantPropagation:
 
             cls._check_amplitudes(table, max_amplitudes)
 
-            # No more information is tracked
-            if table.all_top():
+            if table.all_top() and name_lc != RESET_NAME:
                 new_circ.append(instr, qargs, cargs)
                 continue
 
@@ -93,11 +96,63 @@ class ConstantPropagation:
                 new_circ.append(instr, qargs, cargs)
                 continue
 
-            if name_lc == MEASURE_NAME:
-                c_indices = [c._index for c in cargs]
-                if q_indices:
-                    table.set_top(q_indices[0]) # Meassurement operations involve only one qubit
-                new_circ.append(instr, qargs, cargs)
+            if name_lc == IF_ELSE_NAME:
+                # TODO: We assume at the moment that there is only one instruction in the then branch
+                qc_then = inst.param[0][0]
+                # TODO: we assume at the moment to have one classical bit as control register
+                bit_state = clbit_states.get(cargs[0], BitState.ZERO)
+                if bit_state == BitState.ONE: # We know that the gate will always be applied
+                    min_contr = cls._minimize_controls(table, qc_then, qargs, max_amplitudes)
+                    if min_contr is not None:
+                        instr_min_contr, qargs_min_contr = min_contr
+                        cls._apply_gate(table, instr_min_contr, qargs_min_contr, max_amplitudes)
+                        new_circ.append(instr_min_contr, qargs_min_contr, cargs)
+                elif bit_state == BitState.ZERO:
+                    continue
+                else:
+                    # TODO: remove useless quantum controls from the operations inside
+                    for ind in q_indices:
+                        table.set_top(ind)
+                    new_circ.append(instr, qargs, cargs)
+                continue
+
+
+            if name_lc == MEASURE_NAME: # Single measurement
+                ind = q_indices[0]
+                if table.purity_test(ind):
+                    _prob_meas_0 = table[ind].get_qubit_state().probability_measure_zero()
+                    _prob_meas_1 = table[ind].get_qubit_state().probability_measure_one()
+                    if _prob_meas_0 != 1.0 and _prob_meas_1 != 1.0:
+                        state_vecor =  table[ind].get_qubit_state().to_state_vector()
+                        for x in cls._synthesize_rotation(state_vecor, True).data:
+                            new_circ.append(x)
+                        # Append probabilistic gate
+                        prb_gate = ProbabilisticGate(XGate(), _prob_meas_1)
+                        new_circ.append(prb_gate, qargs)
+
+                        clbit_states[cargs[0], BitState.NOT_KNOWN]
+                        table.separate(ind)   
+                        table.set_top(ind)
+                    elif _prob_meas_0 == 1.0:
+                        clbit_states[cargs[0], BitState.ZERO]
+                    else:
+                        clbit_states[cargs[0], BitState.ONE]
+                elif table[ind].is_qubit_state() and table[ind].get_qubit_state().get_n_qubits() <= max_ent_group_size:
+                    state_vecor =  table[ind].get_qubit_state().to_state_vector()
+                    for x in cls._synthesize_rotation(state_vecor, True).data:
+                        new_circ.append(x)
+                    
+                    targets = table.qubits_in_state(table[t].get_qubit_state())
+                    # TODO: continue
+                    # ...
+                    # At the moment does not support 'big brobabilistic operations'
+                    table.set_top(ind)
+                    clbit_states[cargs[0], BitState.NOT_KNOWN]
+                    new_circ.append(instr, qargs, cargs)
+                else:
+                    table.set_top(ind)
+                    clbit_states[cargs[0], BitState.NOT_KNOWN]
+                    new_circ.append(instr, qargs, cargs)
                 continue
 
             if name_lc == RESET_NAME:
@@ -106,7 +161,7 @@ class ConstantPropagation:
                     if table[ind].is_qubit_state() and table[ind].get_qubit_state().get_n_qubits() <= max_ent_group_size:
                         # Perform rotation from the current state to |0...0>
                         state_vecor =  table[ind].get_qubit_state().to_state_vector()
-                        for x in cls._prepare_state(state_vecor, True).data:
+                        for x in cls._synthesize_rotation(state_vecor, True).data:
                             new_circ.append(x)
                         
                         # Reset ind-th qubit
@@ -128,62 +183,79 @@ class ConstantPropagation:
                         new_circ.append(XGate(), [ind]) # Apply X(ind) -> |0>
                     elif _prob_meas_0 != 1.0 and _prob_meas_1 != 1.0: 
                         state_vecor =  table[ind].get_qubit_state().to_state_vector()
-                        for x in cls._prepare_state(state_vecor, True).data:
+                        for x in cls._synthesize_rotation(state_vecor, True).data:
                             new_circ.append(x)
                 
                 
                 table.reset_state(ind) # Set to |0> the state of the resetted qubit
                 continue
-
-            # Determine control and target qubits
-            if isinstance(instr, ControlledGate):
-                nctrl = instr.num_ctrl_qubits
-                controls: List[int] = q_indices[:nctrl]
-                targets: List[int] = q_indices[nctrl:]
-            else:
-                controls = []
-                targets = q_indices
-
-            # Minimise control set
-            activation, min_controls = table.minimize_controls(controls)
-            if activation == ActivationState.NEVER:
-                continue
-
-            if name_lc == SWAP_NAME:
-                t1, t2 = targets
-                if activation == ActivationState.ALWAYS and not min_controls:
-                    table.swap(t1, t2)
-                    cls._check_amplitude(table, max_amplitudes, t1)
-                    new_circ.append(instr, qargs, cargs)
-                    continue
-
-
-            instr_eff, qargs_eff = cls._rebuild_instruction(instr, qargs, min_controls)
-
-            # Update UnionTable
-            if len(targets) == 1:
-                cls._apply_single_qubit_gate(table, targets[0], min_controls, instr)
-            elif len(targets) == 2:
-                cls._apply_two_qubit_gate(table, targets[0], targets[1], min_controls, instr)
-            else:
-                # Multi‑qubit gates currently unsupported
-                for t in targets:
-                    table.set_top(t)
-
-            cls._check_amplitude(table, max_amplitudes, targets[0])
-
-            new_circ.append(instr_eff, qargs_eff, cargs)
+            
+            min_contr = cls._minimize_controls(table, instr, qargs, max_amplitudes)
+            if min_contr is not None:
+                instr_min_contr, qargs_min_contr = min_contr
+                cls._apply_gate(table, instr_min_contr, qargs_min_contr, max_amplitudes)
+                new_circ.append(instr_min_contr, qargs_min_contr, cargs)
 
         return table, new_circ
 
     @classmethod
     def optimize(cls, circuit: QuantumCircuit, max_amplitudes: int | None = None, max_ent_group_size = 1) -> None:
         """Perform constant-propagation in-place on *circuit."""
-        _, new_circ = cls.propagate(circuit, max_amplitudes, max_ent_group_size, emit_optimised_circuit=True)
+        _, new_circ = cls.propagate(circuit, max_amplitudes, max_ent_group_size, emit_optimized_circuit=True)
 
         circuit.data.clear()
         circuit.append(new_circ.data)
 
+    @classmethod
+    def _minimize_controls(cls, table: UnionTable, instr: Instruction, qargs: Sequence[Qubit], max_amplitudes: int):
+        q_indices = [q._index for q in qargs]
+        name_lc = instr.name.lower()
+        # Determine control and target qubits
+        if isinstance(instr, ControlledGate):
+            nctrl = instr.num_ctrl_qubits
+            controls: List[int] = q_indices[:nctrl]
+            targets: List[int] = q_indices[nctrl:]
+        else:
+            controls = []
+            targets = q_indices
+
+        # Minimize control set
+        activation, min_controls = table.minimize_controls(controls)
+        if activation == ActivationState.NEVER:
+            return None
+
+        if name_lc == SWAP_NAME:
+            t1, t2 = targets
+            if activation == ActivationState.ALWAYS and not min_controls:
+                table.swap(t1, t2)
+                cls._check_amplitude(table, max_amplitudes, t1)
+                return (instr, qargs, targets, min_controls)
+
+
+        instr_eff, qargs_eff = cls._rebuild_instruction(instr, qargs, min_controls)
+        return (instr_eff, qargs_eff, targets, min_controls)
+
+    @classmethod
+    def _apply_gate(cls, table: UnionTable, instr: Instruction, qargs: Sequence[Qubit], max_amplitudes: int) -> None:
+        q_indices = [q._index for q in qargs]
+        # Determine control and target qubits
+        if isinstance(instr, ControlledGate):
+            nctrl = instr.num_ctrl_qubits
+            targets: List[int] = q_indices[nctrl:]
+        else:
+            targets = q_indices
+            
+        # Update UnionTable
+        if len(targets) == 1:
+            cls._apply_single_qubit_gate(table, targets[0], qargs, instr)
+        elif len(targets) == 2:
+            cls._apply_two_qubit_gate(table, targets[0], targets[1], qargs, instr)
+        else:
+            # Multi‑qubit gates currently unsupported
+            for t in targets:
+                table.set_top(t)
+
+        cls._check_amplitude(table, max_amplitudes, targets[0])
 
     # Checks if the number of amplitudes exceeds 'max_amplitudes'
     @staticmethod
@@ -245,7 +317,7 @@ class ConstantPropagation:
     
     
     @staticmethod
-    def _prepare_state(state_vector, inverse = False) -> QuantumCircuit:
+    def _synthesize_rotation(state_vector, inverse = False) -> QuantumCircuit:
         # Ensure the input state is normalized
         state_vector = state_vector / np.linalg.norm(state_vector)
         # Get the number of qubits needed (log2 of the length of state_vector)
