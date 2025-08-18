@@ -201,6 +201,8 @@ class UnionTable:
 
         return (ActivationState.SOMETIMES if not minimized else ActivationState.UNKNOWN), minimized
 
+    # TODO: The behavior of the following function should change.
+    #       After the qubit ind is set to 0, the other qubits in the state should be set to top
     def reset_state(self, qubit: int) -> None:
         reg = self.qu_reg[qubit]
         if reg.is_top() or self.purity_test(qubit):

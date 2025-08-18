@@ -123,8 +123,9 @@ class ConstantPropagation:
                     _prob_meas_1 = table[ind].get_qubit_state().probability_measure_one(table.index_in_state(ind))
                     if _prob_meas_0 != 1.0 and _prob_meas_1 != 1.0:
                         state_vecor =  table[ind].get_qubit_state().to_state_vector()
-                        for x in cls._synthesize_rotation(state_vecor, True).data:
-                            new_circ.append(x)
+                        rot = cls._synthesize_rotation(state_vecor, True)
+                        inst = rot.to_instruction()
+                        new_circ.append(inst, qargs)
                         # Append probabilistic gate
                         prb_gate = ProbabilisticGate(XGate(), _prob_meas_1, cargs[0])
                         new_circ.append(prb_gate, qargs)
@@ -138,8 +139,9 @@ class ConstantPropagation:
                         clbit_states[cargs[0]] = BitState.ONE
                 elif table[ind].is_qubit_state() and table[ind].get_qubit_state().get_n_qubits() <= max_ent_group_size:
                     state_vecor =  table[ind].get_qubit_state().to_state_vector()
-                    for x in cls._synthesize_rotation(state_vecor, True).data:
-                        new_circ.append(x)
+                    rot = cls._synthesize_rotation(state_vecor, True)
+                    inst = rot.to_instruction()
+                    new_circ.append(inst, qargs)
                     
                     targets = table.qubits_in_state(table[t].get_qubit_state())
                     # TODO: continue
@@ -160,16 +162,18 @@ class ConstantPropagation:
                     if table[ind].is_qubit_state() and table[ind].get_qubit_state().get_n_qubits() <= max_ent_group_size:
                         # Perform rotation from the current state to |0...0>
                         state_vecor =  table[ind].get_qubit_state().to_state_vector()
-                        for x in cls._synthesize_rotation(state_vecor, True).data:
-                            new_circ.append(x)
+                        rot = cls._synthesize_rotation(state_vecor, True)
+                        inst = rot.to_instruction()
+                        new_circ.append(inst, qargs)
                         
                         # Reset ind-th qubit
                         table.reset_state(ind)
 
                         # Add gates to perform rotation from state |0...0> to the state before reset where the ind-qubit is |0>
                         state_vecor =  table[ind].get_qubit_state().to_state_vector()
-                        for x in cls._synthesize_rotation(state_vecor, False).data:
-                            new_circ.append(x)
+                        rot = cls._synthesize_rotation(state_vecor, False)
+                        inst = rot.to_instruction()
+                        new_circ.append(inst, qargs)
                         
                         for q in table.qubits_in_state(table[ind].get_qubit_state()):
                             table.separate(q)
@@ -186,8 +190,9 @@ class ConstantPropagation:
                         new_circ.append(XGate(), [ind]) # Apply X(ind) -> |0>
                     elif _prob_meas_0 != 1.0 and _prob_meas_1 != 1.0: 
                         state_vecor =  table[ind].get_qubit_state().to_state_vector()
-                        for x in cls._synthesize_rotation(state_vecor, True).data:
-                            new_circ.append(x)
+                        rot = cls._synthesize_rotation(state_vecor, True)
+                        inst = rot.to_instruction()
+                        new_circ.append(inst, qargs)
                 
                 table.reset_state(ind)
                 continue
