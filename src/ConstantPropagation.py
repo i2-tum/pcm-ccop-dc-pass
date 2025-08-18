@@ -13,7 +13,7 @@ from UnionTable import UnionTable
 from util.ActivationState import ActivationState
 from util.BitState import BitState
 from util.ProbabilisticGate import ProbabilisticGate
-from QuState import EPS
+import random
 
 __all__ = ["ConstantPropagation"]
 
@@ -127,16 +127,16 @@ class ConstantPropagation:
                         for x in cls._synthesize_rotation(state_vecor, True).data:
                             new_circ.append(x)
                         # Append probabilistic gate
-                        prb_gate = ProbabilisticGate(XGate(), _prob_meas_1)
+                        prb_gate = ProbabilisticGate(XGate(), _prob_meas_1, cargs[0])
                         new_circ.append(prb_gate, qargs)
 
-                        clbit_states[cargs[0], BitState.NOT_KNOWN]
+                        clbit_states[cargs[0]] = BitState.NOT_KNOWN
                         table.separate(ind)   
                         table.set_top(ind)
                     elif _prob_meas_0 == 1.0:
-                        clbit_states[cargs[0], BitState.ZERO]
+                        clbit_states[cargs[0]] = BitState.ZERO
                     else:
-                        clbit_states[cargs[0], BitState.ONE]
+                        clbit_states[cargs[0]] = BitState.ONE
                 elif table[ind].is_qubit_state() and table[ind].get_qubit_state().get_n_qubits() <= max_ent_group_size:
                     state_vecor =  table[ind].get_qubit_state().to_state_vector()
                     for x in cls._synthesize_rotation(state_vecor, True).data:
@@ -147,11 +147,11 @@ class ConstantPropagation:
                     # ...
                     # At the moment does not support 'big brobabilistic operations'
                     table.set_top(ind)
-                    clbit_states[cargs[0], BitState.NOT_KNOWN]
+                    clbit_states[cargs[0]] = BitState.NOT_KNOWN
                     new_circ.append(instr, qargs, cargs)
                 else:
                     table.set_top(ind)
-                    clbit_states[cargs[0], BitState.NOT_KNOWN]
+                    clbit_states[cargs[0]] = BitState.NOT_KNOWN
                     new_circ.append(instr, qargs, cargs)
                 continue
 
@@ -205,6 +205,40 @@ class ConstantPropagation:
 
         circuit.data.clear()
         circuit.append(new_circ.data)
+    
+    @classmethod
+    def generate_istance(cls, circuit: QuantumCircuit) -> QuantumCircuit:
+        new_circ = QuantumCircuit(circuit.qubits, circuit.clbits)
+        clbit_states: dict[Clbit, BitState] = {}
+
+        # Walk through instructions
+        for inst in circuit.data:
+            instr = inst.operation
+            qargs = inst.qubits
+            cargs = inst.clbits
+
+            name_lc = instr.name.lower()
+
+            if instr.isinstance(ProbabilisticGate):
+                creg_from_meas = instr.get_creg_from_meas()
+                prob = instr.get_probability()
+
+                # Compiles the probabilistic gate
+                if random.random() < prob:
+                    new_circ.append(XGate, qargs, cargs)
+                    clbit_states[creg_from_meas] = BitState.ONE
+                else:
+                    clbit_states[creg_from_meas] = BitState.ZERO
+            elif name_lc == IF_ELSE_NAME:
+                # TODO: We assume at the moment that there is only one instruction in the then branch
+                qc_then = inst.param[0][0]
+                # TODO: we assume at the moment to have one classical bit as control register
+                bit_state = clbit_states.get(cargs[0], BitState.ZERO)
+                if bit_state == BitState.ONE: # We know that the gate will always be applied
+                    new_circ.append(qc_then.instr, qc_then.qargs, qc_then.cargs)
+                    
+
+
 
     @classmethod
     def _minimize_controls(cls, table: UnionTable, instr: Instruction, qargs: Sequence[Qubit], max_amplitudes: int):
