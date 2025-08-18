@@ -147,6 +147,7 @@ class QubitState:
                 self.state[k] = self.state.get(k, 0) + v
             self.remove_zero_entries()
             return
+        
         new_state: Dict[StateKey, complex] = {}
         for k, v in self.state.items():
             if abs(v) < EPS:
