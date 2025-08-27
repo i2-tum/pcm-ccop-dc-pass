@@ -3,9 +3,9 @@ This class is used to represent the state of classical bits in the propagation o
 """
 
 class BitState:
-    ZERO = None
-    ONE = None
-    NOT_KNOWN = None
+    ZERO = 0
+    ONE = 1
+    NOT_KNOWN = 2
 
     def __init__(self, prob: float | None = None):
         if prob is None:

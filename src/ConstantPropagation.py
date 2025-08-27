@@ -98,15 +98,18 @@ class ConstantPropagation:
 
             if name_lc == IF_ELSE_NAME:
                 # TODO: We assume at the moment that there is only one instruction in the then branch
-                qc_then = inst.param[0][0]
+                qc_then = inst.params[0][0]
+                qc_then_instr = qc_then.operation
+                qc_then_qargs = qc_then.qubits
+                qc_then_cargs = qc_then.clbits
                 # TODO: we assume at the moment to have one classical bit as control register
                 bit_state = clbit_states.get(cargs[0], BitState.ZERO)
                 if bit_state == BitState.ONE: # We know that the gate will always be applied
-                    min_contr = cls._minimize_controls(table, qc_then, qargs, max_amplitudes)
+                    min_contr = cls._minimize_controls(table, qc_then_instr, qc_then_qargs, max_amplitudes)
                     if min_contr is not None:
                         instr_min_contr, qargs_min_contr = min_contr
                         cls._apply_gate(table, instr_min_contr, qargs_min_contr, max_amplitudes)
-                        new_circ.append(instr_min_contr, qargs_min_contr, cargs)
+                        new_circ.append(instr_min_contr, qargs_min_contr, qc_then_cargs)
                 elif bit_state == BitState.ZERO:
                     continue
                 else:
@@ -130,7 +133,7 @@ class ConstantPropagation:
                         prb_gate = ProbabilisticGate(XGate(), _prob_meas_1, cargs[0])
                         new_circ.append(prb_gate, qargs)
 
-                        clbit_states[cargs[0]] = BitState.NOT_KNOWN
+                        clbit_states[cargs[0]] = BitState(_prob_meas_1)
                         table.separate(ind)   
                         table.set_top(ind)
                     elif _prob_meas_0 == 1.0:
@@ -226,23 +229,26 @@ class ConstantPropagation:
 
             name_lc = instr.name.lower()
 
-            if instr.isinstance(ProbabilisticGate):
+            if isinstance(instr, ProbabilisticGate):
                 creg_from_meas = instr.get_creg_from_meas()
                 prob = instr.get_probability()
 
                 # Compiles the probabilistic gate
                 if random.random() < prob:
-                    new_circ.append(XGate, qargs, cargs)
+                    new_circ.append(XGate(), qargs, cargs)
                     clbit_states[creg_from_meas] = BitState.ONE
                 else:
                     clbit_states[creg_from_meas] = BitState.ZERO
             elif name_lc == IF_ELSE_NAME:
                 # TODO: We assume at the moment that there is only one instruction in the then branch
-                qc_then = inst.param[0][0]
+                qc_then = inst.params[0][0]
                 # TODO: we assume at the moment to have one classical bit as control register
                 bit_state = clbit_states.get(cargs[0], BitState.ZERO)
                 if bit_state == BitState.ONE: # We know that the gate will always be applied
-                    new_circ.append(qc_then.instr, qc_then.qargs, qc_then.cargs)
+                    new_circ.append(qc_then.operation, qc_then.qubits, qc_then.clbits)
+            else: # Appends other operations
+                new_circ.append(instr, qargs, cargs)
+        return new_circ
                     
 
 
