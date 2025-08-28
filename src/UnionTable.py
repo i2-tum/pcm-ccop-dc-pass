@@ -127,40 +127,41 @@ class UnionTable:
             if not reg.is_top() and (id(reg.get_qubit_state()) == id(qs1) or id(reg.get_qubit_state()) == id(qs2)):
                 self.qu_reg[i] = QubitStateOrTop(new_qs)
 
-    def swap(self, q1: int, q2: int) -> None:
-        s1 = self.qu_reg[q1]
-        s2 = self.qu_reg[q2]
+    # TODO: remove this
+    # def swap(self, q1: int, q2: int) -> None:
+    #     s1 = self.qu_reg[q1]
+    #     s2 = self.qu_reg[q2]
 
-        if s1.is_top() and s2.is_top():
-            return
+    #     if s1.is_top() and s2.is_top():
+    #         return
 
-        old1 = old2 = 0  # Original positions inside their groups
+    #     old1 = old2 = 0  # Original positions inside their groups
 
-        if s1.is_top() and s2.is_qubit_state():
-            old2 = self.index_in_state(q2)
-            self.qu_reg[q1] = s2
-            self.qu_reg[q2] = QubitStateOrTop()
-        elif s1.is_qubit_state() and s2.is_top():
-            old1 = self.index_in_state(q1)
-            self.qu_reg[q2] = s1
-            self.qu_reg[q1] = QubitStateOrTop()
-        else:
-            qs1 = s1.get_qubit_state()
-            qs2 = s2.get_qubit_state()
-            if qs1 == qs2:
-                # Internal swap within an entangled group
-                qs1.swap_index(self.index_in_state(q1), self.index_in_state(q2))
-                return
-            old1 = self.index_in_state(q1)
-            old2 = self.index_in_state(q2)
-            self.qu_reg[q1] = s2
-            self.qu_reg[q2] = s1
+    #     if s1.is_top() and s2.is_qubit_state():
+    #         old2 = self.index_in_state(q2)
+    #         self.qu_reg[q1] = s2
+    #         self.qu_reg[q2] = QubitStateOrTop()
+    #     elif s1.is_qubit_state() and s2.is_top():
+    #         old1 = self.index_in_state(q1)
+    #         self.qu_reg[q2] = s1
+    #         self.qu_reg[q1] = QubitStateOrTop()
+    #     else:
+    #         qs1 = s1.get_qubit_state()
+    #         qs2 = s2.get_qubit_state()
+    #         if qs1 == qs2:
+    #             # Internal swap within an entangled group
+    #             qs1.swap_index(self.index_in_state(q1), self.index_in_state(q2))
+    #             return
+    #         old1 = self.index_in_state(q1)
+    #         old2 = self.index_in_state(q2)
+    #         self.qu_reg[q1] = s2
+    #         self.qu_reg[q2] = s1
 
-        # Re‑indexing inside the moved states
-        if s1.is_qubit_state():
-            s1.get_qubit_state().reorder_index(old1, self.index_in_state(q2))
-        if s2.is_qubit_state():
-            s2.get_qubit_state().reorder_index(old2, self.index_in_state(q1))
+    #     # Re‑indexing inside the moved states
+    #     if s1.is_qubit_state():
+    #         s1.get_qubit_state().reorder_index(old1, self.index_in_state(q2))
+    #     if s2.is_qubit_state():
+    #         s2.get_qubit_state().reorder_index(old2, self.index_in_state(q1))
 
     def is_always_one(self, q: int) -> bool:
         reg = self.qu_reg[q]
@@ -230,27 +231,36 @@ class UnionTable:
         if reg.is_top() or not self.purity_test(qubit):
             return
 
-        qs = reg.get_qubit_state()
-        idx = self.index_in_state(qubit)
-        alpha, beta = qs.amplitudes(idx)
-
-        # Build "rest" state without this qubit
-        new_rest = QubitState(qs.get_n_qubits() - 1)
+        target = reg.get_qubit_state()
+        new_rest = QubitState(target.get_n_qubits() - 1)
         new_rest.clear()
-        for key, amp in qs.state.items():
+
+        # Collect indices of qubits that share the same QubitState object
+        indices = []
+        for i in range(self.n_qubits):
+            if i != qubit and self.qu_reg[i].is_qubit_state() and self.qu_reg[i].get_qubit_state() is target:
+                indices.append(i)
+
+        idx = self.index_in_state(qubit)
+        alpha, beta = target.amplitudes(idx)
+
+        for key, value in target.state.items():
+            # Remove the idx-th bit to form the reduced key
             reduced = tuple(b for i, b in enumerate(key) if i != idx)
-            new_rest.state[reduced] = amp / (alpha if not key[idx] else beta)
+
+            # Only set if not present OR present as exact zero (to mirror C++'s == 0 check)
+            if (reduced not in new_rest.state) or (new_rest.state[reduced] == 0):
+                denom = alpha if (key[idx] is False) else beta
+                new_rest.state[reduced] = value / denom
+
         new_rest.remove_zero_entries()
 
-        # Reassign entangled partners
-        for i in range(self.n_qubits):
-            if i != qubit and self.qu_reg[i].is_qubit_state() and id(self.qu_reg[i].get_qubit_state()) == id(qs):
-                self.qu_reg[i] = QubitStateOrTop(new_rest)
-
-        # Single‐qubit state for `qubit`
+        # Reassign entangled partners to the new reduced state
+        for i in indices:
+            self.qu_reg[i] = QubitStateOrTop(new_rest)
+        
         single = QubitState(1)
         single.clear()
-
         single.state[(False,)] = alpha
         single.state[(True,)]  = beta
         single.remove_zero_entries()
