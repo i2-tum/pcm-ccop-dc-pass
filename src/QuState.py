@@ -114,13 +114,19 @@ class QubitState:
         
         # Manage multi-qubit states
         dm = np.zeros((2,2), dtype=complex)
-        for k1, v1 in self.state.items():
-            for k2, v2 in self.state.items():
-                # Remove index-th bit from both k1 and k2, then compare
-                k1_rest = tuple(b for i,b in enumerate(k1) if i!=index)
-                k2_rest = tuple(b for i,b in enumerate(k2) if i!=index)
+        
+        for (k1, v1) in self.state.items():
+            for (k2, v2) in self.state.items():
+
+                k1_bit = 1 if k1[index] else 0
+                k2_bit = 1 if k2[index] else 0
+
+                # Remove that bit and compare the remaining substrings
+                k1_rest = k1[:index] + k1[index+1:]
+                k2_rest = k2[:index] + k2[index+1:]
+
                 if k1_rest == k2_rest:
-                    dm[k1[index], k2[index]] += v1 * np.conj(v2)
+                    dm[k1_bit, k2_bit] += complex(v1) * np.conj(complex(v2))
 
         # Eigen decomposition
         eigvals, eigvecs = np.linalg.eigh(dm)
@@ -206,16 +212,17 @@ class QubitState:
         self.state = new_state
         self.remove_zero_entries()
 
-    def swap_index(self, q1: int, q2: int) -> None:
-        if not (0 <= q1 < self.n_qubits and 0 <= q2 < self.n_qubits):
-            raise IndexError("Qubit index out of range")
-        new_state: Dict[StateKey, complex] = {}
-        for k, v in self.state.items():
-            nk = list(k)
-            nk[q1], nk[q2] = nk[q2], nk[q1]
-            nk = tuple(nk)
-            new_state[nk] = v
-        self.state = new_state
+    # TODO: remove this
+    # def swap_index(self, q1: int, q2: int) -> None:
+    #     if not (0 <= q1 < self.n_qubits and 0 <= q2 < self.n_qubits):
+    #         raise IndexError("Qubit index out of range")
+    #     new_state: Dict[StateKey, complex] = {}
+    #     for k, v in self.state.items():
+    #         nk = list(k)
+    #         nk[q1], nk[q2] = nk[q2], nk[q1]
+    #         nk = tuple(nk)
+    #         new_state[nk] = v
+    #     self.state = new_state
 
     def reorder_index(self, old_i: int, new_i: int) -> None:
         if old_i == new_i:
