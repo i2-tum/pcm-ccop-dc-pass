@@ -50,7 +50,6 @@ UNSUPPORTED_GATES: set[str] = {
 
 RESET_NAME = "reset"
 MEASURE_NAME = "measure"
-SWAP_NAME = "swap"
 IF_ELSE_NAME = "if_else"
 
 # ConstantPropagation main class
@@ -271,15 +270,6 @@ class ConstantPropagation:
         if activation == ActivationState.NEVER:
             return None
 
-        # TODO: maybe remove this
-        # if name_lc == SWAP_NAME:
-        #     t1, t2 = targets
-        #     if activation == ActivationState.ALWAYS and not min_controls:
-        #         table.swap(t1, t2)
-        #         cls._check_amplitude(table, max_amplitudes, t1)
-        #         return (instr, qargs, targets, min_controls)
-
-
         instr_eff, qargs_eff = cls._rebuild_instruction(instr, qargs, min_controls)
         return (instr_eff, qargs_eff)
 
@@ -330,6 +320,13 @@ class ConstantPropagation:
         matrix = _single_qubit_matrix(instr)
         table[target].get_qubit_state().apply_gate(idx_t, matrix, idx_ctrl)
 
+        # Separates states of disentangled qubits after gate application
+        table.separate(target)
+
+        for c in controls:
+            # Separates states of disentangled qubits after gate application
+            table.separate(c)
+
     @staticmethod
     def _apply_two_qubit_gate(table: UnionTable, t1: int, t2: int, controls: Sequence[int], instr: Instruction) -> None:
         table.combine(t1, list(controls))
@@ -341,6 +338,12 @@ class ConstantPropagation:
         idx_ctrl = table.index_in_state_list(list(controls))
         matrix = _two_qubit_matrix(instr)
         table[t1].get_qubit_state().apply_two_qubit_gate(idx1, idx2, matrix, idx_ctrl)
+
+        # Separates states of disentangled qubits after gate application
+        table.separate(t1)
+        table.separate(t2)
+        for c in controls:
+            table.separate(c)
 
     # Prunes useless controls from the instruction
     @staticmethod
