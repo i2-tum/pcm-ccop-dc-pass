@@ -212,18 +212,6 @@ class QubitState:
         self.state = new_state
         self.remove_zero_entries()
 
-    # TODO: remove this
-    # def swap_index(self, q1: int, q2: int) -> None:
-    #     if not (0 <= q1 < self.n_qubits and 0 <= q2 < self.n_qubits):
-    #         raise IndexError("Qubit index out of range")
-    #     new_state: Dict[StateKey, complex] = {}
-    #     for k, v in self.state.items():
-    #         nk = list(k)
-    #         nk[q1], nk[q2] = nk[q2], nk[q1]
-    #         nk = tuple(nk)
-    #         new_state[nk] = v
-    #     self.state = new_state
-
     def reorder_index(self, old_i: int, new_i: int) -> None:
         if old_i == new_i:
             return
