@@ -127,42 +127,6 @@ class UnionTable:
             if not reg.is_top() and (id(reg.get_qubit_state()) == id(qs1) or id(reg.get_qubit_state()) == id(qs2)):
                 self.qu_reg[i] = QubitStateOrTop(new_qs)
 
-    # TODO: remove this
-    # def swap(self, q1: int, q2: int) -> None:
-    #     s1 = self.qu_reg[q1]
-    #     s2 = self.qu_reg[q2]
-
-    #     if s1.is_top() and s2.is_top():
-    #         return
-
-    #     old1 = old2 = 0  # Original positions inside their groups
-
-    #     if s1.is_top() and s2.is_qubit_state():
-    #         old2 = self.index_in_state(q2)
-    #         self.qu_reg[q1] = s2
-    #         self.qu_reg[q2] = QubitStateOrTop()
-    #     elif s1.is_qubit_state() and s2.is_top():
-    #         old1 = self.index_in_state(q1)
-    #         self.qu_reg[q2] = s1
-    #         self.qu_reg[q1] = QubitStateOrTop()
-    #     else:
-    #         qs1 = s1.get_qubit_state()
-    #         qs2 = s2.get_qubit_state()
-    #         if qs1 == qs2:
-    #             # Internal swap within an entangled group
-    #             qs1.swap_index(self.index_in_state(q1), self.index_in_state(q2))
-    #             return
-    #         old1 = self.index_in_state(q1)
-    #         old2 = self.index_in_state(q2)
-    #         self.qu_reg[q1] = s2
-    #         self.qu_reg[q2] = s1
-
-    #     # Re‑indexing inside the moved states
-    #     if s1.is_qubit_state():
-    #         s1.get_qubit_state().reorder_index(old1, self.index_in_state(q2))
-    #     if s2.is_qubit_state():
-    #         s2.get_qubit_state().reorder_index(old2, self.index_in_state(q1))
-
     def is_always_one(self, q: int) -> bool:
         reg = self.qu_reg[q]
         return (not reg.is_top()) and reg.get_qubit_state().always_activated([self.index_in_state(q)])
