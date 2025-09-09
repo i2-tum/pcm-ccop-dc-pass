@@ -61,7 +61,7 @@ class ConstantPropagation:
     MAX_AMPLITUDES: int = 32
     
     @classmethod
-    def propagate(cls, circuit: QuantumCircuit, max_amplitudes: int | None = None, max_ent_group_size = 1, table: UnionTable | None = None) -> Tuple[UnionTable, QuantumCircuit]:
+    def _propagate(cls, circuit: QuantumCircuit, max_amplitudes: int | None = None, max_ent_group_size = 1, table: UnionTable | None = None) -> Tuple[UnionTable, QuantumCircuit]:
         max_amplitudes = max_amplitudes or cls.MAX_AMPLITUDES
 
         clbit_states: dict[Clbit, BitState] = {}
@@ -153,7 +153,7 @@ class ConstantPropagation:
                                     bits.append(bit)
                                 cond = reduce(expr.bit_and, bits)
                                 with new_circ.if_test(cond):
-                                    new_circ.append()
+                                    new_circ.append(instr_min_contr, qargs_min_contr, qc_then_cargs)
 
                         q_indices_min_contr = [q._index for q in qargs_min_contr]
                         for ind in q_indices_min_contr:
@@ -166,8 +166,8 @@ class ConstantPropagation:
                     _prob_meas_0 = table[ind].get_qubit_state().probability_measure_zero(table.index_in_state(ind))
                     _prob_meas_1 = table[ind].get_qubit_state().probability_measure_one(table.index_in_state(ind))
                     if _prob_meas_0 != 1.0 and _prob_meas_1 != 1.0:
-                        state_vecor =  table[ind].get_qubit_state().to_state_vector()
-                        rot = cls._synthesize_rotation(state_vecor, True)
+                        state_vector =  table[ind].get_qubit_state().to_state_vector()
+                        rot = cls._synthesize_rotation(state_vector, True)
                         inst = rot.to_instruction()
                         new_circ.append(inst, qargs)
                         # Append probabilistic gate
@@ -182,12 +182,12 @@ class ConstantPropagation:
                     else:
                         clbit_states[cargs[0]] = BitState.ONE
                 elif table[ind].is_qubit_state() and table[ind].get_qubit_state().get_n_qubits() <= max_ent_group_size:
-                    state_vecor =  table[ind].get_qubit_state().to_state_vector()
-                    rot = cls._synthesize_rotation(state_vecor, True)
+                    state_vector =  table[ind].get_qubit_state().to_state_vector()
+                    rot = cls._synthesize_rotation(state_vector, True)
                     inst = rot.to_instruction()
                     new_circ.append(inst, qargs)
                     
-                    targets = table.qubits_in_state(table[t].get_qubit_state())
+                    targets = table.qubits_in_state(table[ind].get_qubit_state())
                     # TODO: continue
                     # ...
                     # At the moment does not support 'big brobabilistic operations'
@@ -205,8 +205,8 @@ class ConstantPropagation:
                 if not table.purity_test(ind):
                     if table[ind].is_qubit_state() and table[ind].get_qubit_state().get_n_qubits() <= max_ent_group_size:
                         # Perform rotation from the current state to |0...0>
-                        state_vecor =  table[ind].get_qubit_state().to_state_vector()
-                        rot = cls._synthesize_rotation(state_vecor, True)
+                        state_vector =  table[ind].get_qubit_state().to_state_vector()
+                        rot = cls._synthesize_rotation(state_vector, True)
                         inst = rot.to_instruction()
                         new_circ.append(inst, qargs)
                         
@@ -214,8 +214,8 @@ class ConstantPropagation:
                         table.reset_state(ind)
 
                         # Add gates to perform rotation from state |0...0> to the state before reset where the ind-qubit is |0>
-                        state_vecor =  table[ind].get_qubit_state().to_state_vector()
-                        rot = cls._synthesize_rotation(state_vecor, False)
+                        state_vector =  table[ind].get_qubit_state().to_state_vector()
+                        rot = cls._synthesize_rotation(state_vector, False)
                         inst = rot.to_instruction()
                         new_circ.append(inst, qargs)
                         
@@ -231,10 +231,10 @@ class ConstantPropagation:
                     _prob_meas_0 = table[ind].get_qubit_state().probability_measure_zero(table.index_in_state(ind))
                     _prob_meas_1 = table[ind].get_qubit_state().probability_measure_one(table.index_in_state(ind))
                     if _prob_meas_1 == 1.0: # Qubit is in the state |1>
-                        new_circ.append(XGate(), [ind]) # Apply X(ind) -> |0>
+                        new_circ.append(XGate(), qargs, cargs) # Apply X(ind) -> |0>
                     elif _prob_meas_0 != 1.0 and _prob_meas_1 != 1.0: 
-                        state_vecor =  table[ind].get_qubit_state().to_state_vector()
-                        rot = cls._synthesize_rotation(state_vecor, True)
+                        state_vector =  table[ind].get_qubit_state().to_state_vector()
+                        rot = cls._synthesize_rotation(state_vector, True)
                         inst = rot.to_instruction()
                         new_circ.append(inst, qargs)
                 
@@ -250,12 +250,11 @@ class ConstantPropagation:
         return table, new_circ
 
     @classmethod
-    def optimize(cls, circuit: QuantumCircuit, max_amplitudes: int | None = None, max_ent_group_size = 1) -> None:
+    def optimize(cls, circuit: QuantumCircuit, max_amplitudes: int | None = None, max_ent_group_size = 1) -> QuantumCircuit:
         """Perform constant-propagation in-place on *circuit."""
-        _, new_circ = cls.propagate(circuit, max_amplitudes, max_ent_group_size, emit_optimized_circuit=True)
+        table, new_circ = cls._propagate(circuit, max_amplitudes, max_ent_group_size)
 
-        circuit.data.clear()
-        circuit.append(new_circ.data)
+        return table, new_circ
     
     @classmethod
     def generate_istance(cls, circuit: QuantumCircuit) -> QuantumCircuit:
@@ -297,9 +296,6 @@ class ConstantPropagation:
                 new_circ.append(instr, qargs, cargs)
         return new_circ
                     
-
-
-
     @classmethod
     def _minimize_controls(cls, table: UnionTable, instr: Instruction, qargs: Sequence[Qubit]):
         q_indices = [q._index for q in qargs]
