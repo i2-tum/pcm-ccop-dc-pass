@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from typing import List, Tuple, Sequence, Optional
 
-from qiskit import QuantumCircuit, transpile
+from qiskit import QuantumCircuit
 from qiskit.circuit import Instruction, ControlledGate, Gate, Qubit, Clbit
 from qiskit.quantum_info import Operator
 from qiskit.circuit.library import StatePreparation, XGate
+from qiskit.circuit.classical import expr
+from functools import reduce
 
 import numpy as np
 
@@ -101,23 +103,63 @@ class ConstantPropagation:
                 qc_then_instr = qc_then.operation
                 qc_then_qargs = qc_then.qubits
                 qc_then_cargs = qc_then.clbits
-                # TODO: we assume at the moment to have one classical bit as control register
-                bit_state = clbit_states.get(cargs[0], BitState.ZERO)
-                if bit_state == BitState.ONE: # We know that the gate will always be applied
-                    min_contr = cls._minimize_controls(table, qc_then_instr, qc_then_qargs, max_amplitudes)
-                    if min_contr is not None:
-                        instr_min_contr, qargs_min_contr = min_contr
-                        cls._apply_gate(table, instr_min_contr, qargs_min_contr, max_amplitudes)
-                        new_circ.append(instr_min_contr, qargs_min_contr, qc_then_cargs)
-                elif bit_state == BitState.ZERO:
-                    continue
-                else:
-                    # TODO: remove useless quantum controls from the operations inside
-                    for ind in q_indices:
-                        table.set_top(ind)
-                    new_circ.append(instr, qargs, cargs)
-                continue
+                qc_then_cond = instr.condition
 
+                min_contr = cls._minimize_controls(table, qc_then_instr, qc_then_qargs)
+                if min_contr is None:
+                    continue # The inner operation will never be applied
+                instr_min_contr, qargs_min_contr = min_contr
+
+                if isinstance(qc_then_cond, tuple): # Case where the condition is a comparison between a register and an integer
+                    if all(clbit_states.get(c, BitState.ZERO) in (BitState.ZERO, BitState.ONE) for c in cargs):
+                        # Compare bit states in 'clbit_states' with the value in the expression
+                        _, val_exp = qc_then_cond
+                        val_state = sum((1 if clbit_states.get(c, BitState.ZERO) == BitState.ONE else 0) << c._index for c in cargs)
+                        
+                        if val_exp == val_state: # We know that the gate will always be applied
+                            # Add the instruction without the classical control
+                            cls._apply_gate(table, instr_min_contr, qargs_min_contr, max_amplitudes)
+                            new_circ.append(instr_min_contr, qargs_min_contr, qc_then_cargs)
+                        # else: the operation will not be applied at runtime
+                    else:
+                        # Check if the already determined bit satisfies the condition
+                        mask = 0
+                        expected = 0
+                        not_determined_bits = []
+                        for c in cargs:
+                            i = c._index
+                            st = clbit_states.get(c, None)
+                            if st in (BitState.ZERO, BitState.ONE):
+                                mask |= (1 << i)
+                                if st == BitState.ONE:
+                                    expected |= (1 << i)
+                            else:
+                                not_determined_bits.append(c)
+                        _, val_exp = qc_then_cond
+                        if (val_exp & mask) == expected: # Append the classical controlled operation
+                                                         # else: No need to add this operation
+                            if len(not_determined_bits) == 1: # Only one bit as control register
+                                c = not_determined_bits[0]
+                                with new_circ.if_test((c, 0 if (1 << c._index) & val_exp == 0 else 1)):
+                                    new_circ.append(instr_min_contr, qargs_min_contr, qc_then_cargs)
+                            else: # Multiple bits as control register
+                                # Builds the new condition for the classical controlled operation
+                                bits =[]
+                                for c in not_determined_bits:
+                                    bit = c
+                                    bit_val_exp = 0 if (1 << bit.index) & val_exp == 0 else 1
+                                    if bit_val_exp == 0:
+                                        bit = expr.bit_not(bit)
+                                    bits.append(bit)
+                                cond = reduce(expr.bit_and, bits)
+                                with new_circ.if_test(cond):
+                                    new_circ.append()
+
+                        q_indices_min_contr = [q._index for q in qargs_min_contr]
+                        for ind in q_indices_min_contr:
+                            table.set_top(ind)
+                    continue
+                
             if name_lc == MEASURE_NAME: # Single measurement
                 ind = q_indices[0]
                 if table.purity_test(ind):
@@ -199,7 +241,7 @@ class ConstantPropagation:
                 table.reset_state(ind)
                 continue
             
-            min_contr = cls._minimize_controls(table, instr, qargs, max_amplitudes)
+            min_contr = cls._minimize_controls(table, instr, qargs)
             if min_contr is not None:
                 instr_min_contr, qargs_min_contr = min_contr
                 cls._apply_gate(table, instr_min_contr, qargs_min_contr, max_amplitudes)
@@ -238,6 +280,10 @@ class ConstantPropagation:
                     clbit_states[creg_from_meas] = BitState.ONE
                 else:
                     clbit_states[creg_from_meas] = BitState.ZERO
+            elif name_lc == MEASURE_NAME:
+                # When a measurement is performed the bit states of the corresponding measurement operation are set to NOT_KNOWN
+                for c in cargs:
+                    clbit_states[c] = BitState.NOT_KNOWN
             elif name_lc == IF_ELSE_NAME:
                 # TODO: We assume at the moment that there is only one instruction in the then branch
                 qc_then = inst.params[0][0]
@@ -245,7 +291,9 @@ class ConstantPropagation:
                 bit_state = clbit_states.get(cargs[0], BitState.ZERO)
                 if bit_state == BitState.ONE: # We know that the gate will always be applied
                     new_circ.append(qc_then.operation, qc_then.qubits, qc_then.clbits)
-            else: # Appends other operations
+
+
+            else: # Appends all the other operations
                 new_circ.append(instr, qargs, cargs)
         return new_circ
                     
@@ -253,7 +301,7 @@ class ConstantPropagation:
 
 
     @classmethod
-    def _minimize_controls(cls, table: UnionTable, instr: Instruction, qargs: Sequence[Qubit], max_amplitudes: int):
+    def _minimize_controls(cls, table: UnionTable, instr: Instruction, qargs: Sequence[Qubit]):
         q_indices = [q._index for q in qargs]
         # name_lc = instr.name.lower()
         # Determine control and target qubits
