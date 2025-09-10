@@ -15,6 +15,7 @@ from UnionTable import UnionTable
 from util.ActivationState import ActivationState
 from util.BitState import BitState
 from util.ProbabilisticGate import ProbabilisticGate
+from SimplifyCondition import SimplifyCondition
 import random
 
 __all__ = ["ConstantPropagation"]
@@ -120,7 +121,8 @@ class ConstantPropagation:
                             # Add the instruction without the classical control
                             cls._apply_gate(table, instr_min_contr, qargs_min_contr, max_amplitudes)
                             new_circ.append(instr_min_contr, qargs_min_contr, qc_then_cargs)
-                        # else: the operation will not be applied at runtime
+                        else: 
+                            pass # The operation will not be applied at runtime
                     else:
                         # Check if the already determined bit satisfies the condition
                         mask = 0
@@ -155,6 +157,21 @@ class ConstantPropagation:
                                 with new_circ.if_test(cond):
                                     new_circ.append(instr_min_contr, qargs_min_contr, qc_then_cargs)
 
+                        q_indices_min_contr = [q._index for q in qargs_min_contr]
+                        for ind in q_indices_min_contr:
+                            table.set_top(ind)
+                else: # Case where the condition is an expression
+                    cond = qc_then_cond
+                    res = SimplifyCondition.simplify(cond, clbit_states)
+                    if res.always_true: # The inner operation will always be applied
+                        cls._apply_gate(table, instr_min_contr, qargs_min_contr, max_amplitudes)
+                        new_circ.append(instr_min_contr, qargs_min_contr, qc_then_cargs)
+                    elif res.always_false:
+                        pass # The inner operation will never be applied
+                    else: # The inner operation may be applied
+                        with new_circ.if_test(res.expr):
+                            new_circ.append(instr_min_contr, qargs_min_contr, qc_then_cargs)
+                        
                         q_indices_min_contr = [q._index for q in qargs_min_contr]
                         for ind in q_indices_min_contr:
                             table.set_top(ind)
