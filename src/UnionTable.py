@@ -10,8 +10,8 @@ class UnionTable:
         # Initialize each entry to a single-qubit |0> state
         self.qu_reg: List[QubitStateOrTop] = [QubitStateOrTop(QubitState(1)) for _ in range(n_qubits)]
 
-    def __getitem__(self, idx: int) -> QubitStateOrTop:
-        return self.qu_reg[idx]
+    def __getitem__(self, index: int) -> QubitStateOrTop:
+        return self.qu_reg[index]
 
     def __eq__(self, other: 'UnionTable') -> bool:
         if not isinstance(other, UnionTable) or self.n_qubits != other.n_qubits:
