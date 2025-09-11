@@ -58,6 +58,9 @@ class QubitState:
         for k in list(self.state):
             self.state[k] += other.state.get(k, 0)
         return self
+    
+    def __iter__(self):
+        return iter(self.state.items())
 
     def to_state_vector(self) -> List[complex]:
         size = 1 << self.n_qubits
