@@ -149,7 +149,6 @@ class ConstantPropagation:
 
                     table.set_top(ind)
                     clbit_states[cargs[0]] = BitState.NOT_KNOWN
-                    new_circ.append(instr, qargs, cargs)
                 else:
                     table.set_top(ind)
                     clbit_states[cargs[0]] = BitState.NOT_KNOWN
