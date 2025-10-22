@@ -263,14 +263,9 @@ class ConstantPropagation:
         return new_circ
     
     @classmethod
-    def _optimize_classic_controlled_operation(cls, new_circ: QuantumCircuit, clbit_states: dict[Clbit, BitState], inst: Instruction, table: UnionTable | None = None, max_amplitudes = 1) -> None:
-        instr = inst.operation
-        cargs = inst.clbits
-        instr_cond = instr.condition
-        
-        qc_then = []
-
-        for inner_inst in inst.params[0]:
+    def _construct_branch_circuit(cls, table, instr_branch):
+        qc_branch = []
+        for inner_inst in instr_branch:
             qc_then_instr = inner_inst.operation
             qc_then_qargs = inner_inst.qubits
             qc_then_cargs = inner_inst.clbits
@@ -281,11 +276,24 @@ class ConstantPropagation:
                     continue # The inner operation will never be applied
                 qc_then_instr, qc_then_qargs = min_contr
             
-            qc_then.append((qc_then_instr, qc_then_qargs, qc_then_cargs))
+            qc_branch.append((qc_then_instr, qc_then_qargs, qc_then_cargs))
+        return qc_branch
+    
+    @classmethod
+    def _optimize_classic_controlled_operation(cls, new_circ: QuantumCircuit, clbit_states: dict[Clbit, BitState], inst: Instruction, table: UnionTable | None = None, max_amplitudes = 1) -> None:
+        instr = inst.operation
+        cargs = inst.clbits
+        instr_cond = instr.condition
+        
+        qc_then = cls._construct_branch_circuit(table, inst.params[0])
+
+        qc_else = []
+        if len(inst.params) > 1:
+            qc_else = cls._construct_branch_circuit(table, inst.params[1])
             
         
-        if len(qc_then) == 0:
-            return # No operation in the then branch
+        if len(qc_then) == 0 and len(qc_else) == 0:
+            return # No operation in both branches
 
         if isinstance(instr_cond, tuple): # Case where the condition is a comparison between a register and an integer
             if all(clbit_states.get(c, BitState.ZERO) in (BitState.ZERO, BitState.ONE) for c in cargs):
@@ -294,12 +302,19 @@ class ConstantPropagation:
                 val_state = sum((1 if clbit_states.get(c, BitState.ZERO) == BitState.ONE else 0) << c._index for c in cargs)
 
                 if val_exp == val_state: # We know that the gate will always be applied
+                    # Add the instruction without the classical control
                     for qc_then_instr, qc_then_qargs, qc_then_cargs in qc_then:
-                        if table is not None: # Add the instruction without the classical control
+                        if table is not None: 
                             cls._apply_gate(table, qc_then_instr, qc_then_qargs, max_amplitudes)
                         new_circ.append(qc_then_instr, qc_then_qargs, qc_then_cargs)
-                else: 
-                    pass # The operation will not be applied at runtime
+                else:
+                    if len(qc_else) > 0:
+                        # Add the instruction without the classical control
+                        for qc_else_instr, qc_else_qargs, qc_else_cargs in qc_else:
+                            if table is not None:
+                                cls._apply_gate(table, qc_else_instr, qc_else_qargs, max_amplitudes)
+                            new_circ.append(qc_else_instr, qc_else_qargs, qc_else_cargs)
+                    # else: pass # The operation will not be applied at runtime
             else:
                 # Check if the already determined bit satisfies the condition
                 mask = 0
@@ -318,9 +333,12 @@ class ConstantPropagation:
                 if (val_exp & mask) == expected: # Append the classical controlled operation
                     if len(not_determined_bits) == 1: # Only one bit as control register
                         c = not_determined_bits[0]
-                        with new_circ.if_test((c, 0 if (1 << c._index) & val_exp == 0 else 1)):
+                        with new_circ.if_test((c, 0 if (1 << c._index) & val_exp == 0 else 1)) as else_:
                             for qc_then_instr, qc_then_qargs, qc_then_cargs in qc_then:
                                 new_circ.append(qc_then_instr, qc_then_qargs, qc_then_cargs)
+                        with else_:
+                            for qc_else_instr, qc_else_qargs, qc_else_cargs in qc_else:
+                                new_circ.append(qc_else_instr, qc_else_qargs, qc_else_cargs)
                     else: # Multiple bits as control register
                         # Builds the new condition for the classical controlled operation
                         bits = []
@@ -331,16 +349,30 @@ class ConstantPropagation:
                                 bit = expr.bit_not(bit)
                             bits.append(bit)
                         cond = reduce(expr.bit_and, bits)
-                        with new_circ.if_test(cond):
+                        with new_circ.if_test(cond) as else_:
                             for qc_then_instr, qc_then_qargs, qc_then_cargs in qc_then:
                                 new_circ.append(qc_then_instr, qc_then_qargs, qc_then_cargs)
+                        with else_:
+                            for qc_else_instr, qc_else_qargs, qc_else_cargs in qc_else:
+                                new_circ.append(qc_else_instr, qc_else_qargs, qc_else_cargs)
+                    # Set to top all qubits involved in the then-branch and else-branch
+                    if table is not None:
+                        for qc_then_instr, qc_then_qargs, qc_then_cargs in qc_then:   
+                            q_ind = [q._index for q in qc_then_qargs]
+                            for ind in q_ind:
+                                table.set_top(ind)
+                        for qc_else_instr, qc_else_qargs, qc_else_cargs in qc_else:
+                            q_ind = [q._index for q in qc_else_qargs]
+                            for ind in q_ind:
+                                table.set_top(ind)
                 else:
-                    pass # The operation will not be applied at runtime
-                if table is not None:
-                    for qc_then_instr, qc_then_qargs, qc_then_cargs in qc_then:   
-                        q_ind = [q._index for q in qc_then_qargs]
-                        for ind in q_ind:
-                            table.set_top(ind)
+                    if len(qc_else) > 0:
+                        # Add the instruction without the classical control
+                        for qc_else_instr, qc_else_qargs, qc_else_cargs in qc_else:
+                            if table is not None:
+                                cls._apply_gate(table, qc_else_instr, qc_else_qargs, max_amplitudes)
+                            new_circ.append(qc_else_instr, qc_else_qargs, qc_else_cargs)
+                    # else: pass # The operation will not be applied at runtime
         else: # Case where the condition is an expression
             cond = instr_cond
             res = SimplifyCondition.simplify(cond, clbit_states)
@@ -350,29 +382,39 @@ class ConstantPropagation:
                         cls._apply_gate(table, qc_then_instr, qc_then_qargs, max_amplitudes)
                     new_circ.append(qc_then_instr, qc_then_qargs, qc_then_cargs)
             elif res.always_false:
-                pass # The inner operation will never be applied
+                if len(qc_else) > 0:
+                    # Add the instruction without the classical control
+                    for qc_else_instr, qc_else_qargs, qc_else_cargs in qc_else:
+                        if table is not None:
+                            cls._apply_gate(table, qc_else_instr, qc_else_qargs, max_amplitudes)
+                        new_circ.append(qc_else_instr, qc_else_qargs, qc_else_cargs)
+                # else: pass # The operation will not be applied at runtime
             else: # The inner operation may be applied
-                with new_circ.if_test(res.expr):
+                with new_circ.if_test(res.expr) as else_:
                     for qc_then_instr, qc_then_qargs, qc_then_cargs in qc_then:
                         new_circ.append(qc_then_instr, qc_then_qargs, qc_then_cargs)
-
+                with else_:
+                    for qc_else_instr, qc_else_qargs, qc_else_cargs in qc_else:
+                        new_circ.append(qc_else_instr, qc_else_qargs, qc_else_cargs)
+                # Set to top all qubits involved in the then-branch and else-branch
                 if table is not None:
                     for qc_then_instr, qc_then_qargs, qc_then_cargs in qc_then:   
                         q_ind = [q._index for q in qc_then_qargs]
                         for ind in q_ind:
                             table.set_top(ind)
+                    for qc_else_instr, qc_else_qargs, qc_else_cargs in qc_else:
+                        q_ind = [q._index for q in qc_else_qargs]
+                        for ind in q_ind:
+                            table.set_top(ind)
     @classmethod
     def _minimize_controls(cls, table: UnionTable, instr: Instruction, qargs: Sequence[Qubit]):
         q_indices = [q._index for q in qargs]
-        # name_lc = instr.name.lower()
         # Determine control and target qubits
         if isinstance(instr, ControlledGate):
             nctrl = instr.num_ctrl_qubits
             controls: List[int] = q_indices[:nctrl]
-            # targets: List[int] = q_indices[nctrl:]
         else:
             controls = []
-            # targets = q_indices
 
         # Minimize control set
         activation, min_controls = table.minimize_controls(controls)
