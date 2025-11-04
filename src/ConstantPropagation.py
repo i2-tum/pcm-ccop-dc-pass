@@ -69,7 +69,7 @@ class ConstantPropagation:
         table = table or UnionTable(circuit.num_qubits)
 
         # Prepare new circuit
-        new_circ = QuantumCircuit(circuit.qubits, circuit.clbits)
+        new_circ = QuantumCircuit(*circuit.qregs, *circuit.cregs)
 
         # Walk through instructions
         for inst in circuit.data:
@@ -116,7 +116,7 @@ class ConstantPropagation:
                         prb_gate = ProbabilisticGate(XGate(), _prob_meas_1, cargs[0])
                         new_circ.append(prb_gate, qargs)
 
-                        clbit_states[cargs[0]] = BitState(_prob_meas_1)
+                        clbit_states[cargs[0]] = BitState.NOT_KNOWN
                         table.separate(ind)   
                         table.set_top(ind)
                     elif _prob_meas_0 == 1.0:
@@ -212,7 +212,7 @@ class ConstantPropagation:
         return table, new_circ
     
     @classmethod
-    def generate_istance(cls, circuit: QuantumCircuit) -> QuantumCircuit:
+    def generate_instance(cls, circuit: QuantumCircuit) -> QuantumCircuit:
         new_circ = QuantumCircuit(circuit.qubits, circuit.clbits)
         clbit_states: dict[Clbit, BitState] = {}
 
@@ -239,7 +239,6 @@ class ConstantPropagation:
                 creg_from_meas_state = BitState.ZERO # Default value
                 probs = instr.get_probabilities()
                 gates_and_ind = instr.get_gates()
-                r = random.random()
                 # Choose one of the element of probs_and_gates according to the probabilities
                 weights = [p for p in probs]
                 # Use random.choices to pick one sequence based on weights
