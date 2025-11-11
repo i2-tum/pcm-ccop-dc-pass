@@ -254,6 +254,7 @@ class ConstantPropagation:
                 # When a measurement is performed the bit states of the corresponding measurement operation are set to NOT_KNOWN
                 for c in cargs:
                     clbit_states[c] = BitState.NOT_KNOWN
+                new_circ.append(instr, qargs, cargs)
             elif name_lc == IF_ELSE_NAME:
                 cls._optimize_classic_controlled_operation(new_circ, clbit_states, inst)
 
@@ -263,6 +264,8 @@ class ConstantPropagation:
     
     @classmethod
     def _construct_branch_circuit(cls, table, instr_branch):
+        if instr_branch is None:
+            return []
         qc_branch = []
         for inner_inst in instr_branch:
             qc_then_instr = inner_inst.operation
@@ -335,9 +338,10 @@ class ConstantPropagation:
                         with new_circ.if_test((c, 0 if (1 << c._index) & val_exp == 0 else 1)) as else_:
                             for qc_then_instr, qc_then_qargs, qc_then_cargs in qc_then:
                                 new_circ.append(qc_then_instr, qc_then_qargs, qc_then_cargs)
-                        with else_:
-                            for qc_else_instr, qc_else_qargs, qc_else_cargs in qc_else:
-                                new_circ.append(qc_else_instr, qc_else_qargs, qc_else_cargs)
+                        if len(qc_else) > 0:
+                            with else_:
+                                for qc_else_instr, qc_else_qargs, qc_else_cargs in qc_else:
+                                    new_circ.append(qc_else_instr, qc_else_qargs, qc_else_cargs)
                     else: # Multiple bits as control register
                         # Builds the new condition for the classical controlled operation
                         bits = []
@@ -351,9 +355,10 @@ class ConstantPropagation:
                         with new_circ.if_test(cond) as else_:
                             for qc_then_instr, qc_then_qargs, qc_then_cargs in qc_then:
                                 new_circ.append(qc_then_instr, qc_then_qargs, qc_then_cargs)
-                        with else_:
-                            for qc_else_instr, qc_else_qargs, qc_else_cargs in qc_else:
-                                new_circ.append(qc_else_instr, qc_else_qargs, qc_else_cargs)
+                        if len(qc_else) > 0:
+                            with else_:
+                                for qc_else_instr, qc_else_qargs, qc_else_cargs in qc_else:
+                                    new_circ.append(qc_else_instr, qc_else_qargs, qc_else_cargs)
                     # Set to top all qubits involved in the then-branch and else-branch
                     if table is not None:
                         for qc_then_instr, qc_then_qargs, qc_then_cargs in qc_then:   
@@ -392,9 +397,10 @@ class ConstantPropagation:
                 with new_circ.if_test(res.expr) as else_:
                     for qc_then_instr, qc_then_qargs, qc_then_cargs in qc_then:
                         new_circ.append(qc_then_instr, qc_then_qargs, qc_then_cargs)
-                with else_:
-                    for qc_else_instr, qc_else_qargs, qc_else_cargs in qc_else:
-                        new_circ.append(qc_else_instr, qc_else_qargs, qc_else_cargs)
+                if len(qc_else) > 0:
+                    with else_:
+                        for qc_else_instr, qc_else_qargs, qc_else_cargs in qc_else:
+                            new_circ.append(qc_else_instr, qc_else_qargs, qc_else_cargs)
                 # Set to top all qubits involved in the then-branch and else-branch
                 if table is not None:
                     for qc_then_instr, qc_then_qargs, qc_then_cargs in qc_then:   
