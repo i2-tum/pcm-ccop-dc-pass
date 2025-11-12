@@ -157,32 +157,7 @@ class ConstantPropagation:
 
             if name_lc == RESET_NAME:
                 ind = q_indices[0]
-                if not table.purity_test(ind):
-                    if table[ind].is_qubit_state() and table[ind].get_qubit_state().get_n_qubits() <= max_ent_group_size:
-                        # Perform rotation from the current state to |0...0>
-                        state_vector =  table[ind].get_qubit_state().to_state_vector()
-                        rot = cls._synthesize_rotation(state_vector, True)
-                        inst = rot.to_instruction()
-                        new_circ.append(inst, qargs)
-                        
-                        # Reset ind-th qubit
-                        table.reset_state(ind)
-
-                        # Add gates to perform rotation from state |0...0> to the state before reset where the ind-qubit is |0>
-                        state_vector =  table[ind].get_qubit_state().to_state_vector()
-                        rot = cls._synthesize_rotation(state_vector, False)
-                        inst = rot.to_instruction()
-                        new_circ.append(inst, qargs)
-                        
-                        for q in table.qubits_in_state(table[ind].get_qubit_state()):
-                            table.separate(q)
-                    else:
-                        table.reset_state(ind)
-                        for q in table.qubits_in_state(table[ind].get_qubit_state()):
-                            table.separate(q)
-                        new_circ.append(instr, qargs, cargs)
-
-                elif table[ind].is_qubit_state():
+                if table.purity_test(ind) and table[ind].is_qubit_state():
                     _prob_meas_0 = table[ind].get_qubit_state().probability_measure_zero(table.index_in_state(ind))
                     _prob_meas_1 = table[ind].get_qubit_state().probability_measure_one(table.index_in_state(ind))
                     if _prob_meas_1 == 1.0: # Qubit is in the state |1>
@@ -192,9 +167,56 @@ class ConstantPropagation:
                         rot = cls._synthesize_rotation(state_vector, True)
                         inst = rot.to_instruction()
                         new_circ.append(inst, qargs)
-                
+                else:
+                    new_circ.append(instr, qargs, cargs)
+
                 table.reset_state(ind)
                 continue
+                # TODO: Delete this old version
+                # ind = q_indices[0]
+                # if not table.purity_test(ind):
+                #     if table[ind].is_qubit_state() and table[ind].get_qubit_state().get_n_qubits() <= max_ent_group_size:
+                #         # Perform rotation from the current state to |0...0>
+                #         state_vector =  table[ind].get_qubit_state().to_state_vector()
+                #         rot = cls._synthesize_rotation(state_vector, True)
+                #         inst = rot.to_instruction()
+
+                #         targets = table.qubits_in_state(table[ind].get_qubit_state())
+                #         new_circ.append(inst, targets)
+                        
+                #         # Reset ind-th qubit
+                #         table.reset_state(ind)
+
+                #         # Add gates to perform rotation from state |0...0> to the state before reset where the ind-qubit is |0>
+                #         state_vector =  table[ind].get_qubit_state().to_state_vector()
+                #         rot = cls._synthesize_rotation(state_vector, False)
+                #         inst = rot.to_instruction()
+
+                #         targets = table.qubits_in_state(table[ind].get_qubit_state())
+                #         new_circ.append(inst, targets)
+                        
+                #         for q in table.qubits_in_state(table[ind].get_qubit_state()):
+                #             table.separate(q)
+                #     else:
+                #         table.reset_state(ind)
+                #         for q in table.qubits_in_state(table[ind].get_qubit_state()):
+                #             table.separate(q)
+                #         new_circ.append(instr, qargs, cargs)
+
+                # elif table[ind].is_qubit_state():
+                #     _prob_meas_0 = table[ind].get_qubit_state().probability_measure_zero(table.index_in_state(ind))
+                #     _prob_meas_1 = table[ind].get_qubit_state().probability_measure_one(table.index_in_state(ind))
+                #     if _prob_meas_1 == 1.0: # Qubit is in the state |1>
+                #         new_circ.append(XGate(), qargs, cargs) # Apply X(ind) -> |0>
+                #     elif _prob_meas_0 != 1.0 and _prob_meas_1 != 1.0: 
+                #         state_vector =  table[ind].get_qubit_state().to_state_vector()
+                #         rot = cls._synthesize_rotation(state_vector, True)
+                #         inst = rot.to_instruction()
+                #         new_circ.append(inst, qargs)
+                
+                # table.reset_state(ind)
+                # continue
+
             
             min_contr = cls._minimize_controls(table, instr, qargs)
             if min_contr is not None:

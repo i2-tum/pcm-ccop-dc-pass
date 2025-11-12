@@ -169,26 +169,29 @@ class UnionTable:
     # TODO: The behavior of the following function should change.
     #       After the qubit ind is set to 0, the other qubits in the state should be set to top
     def reset_state(self, qubit: int) -> None:
-        reg = self.qu_reg[qubit]
-        if reg.is_top() or self.purity_test(qubit):
-            self.qu_reg[qubit] = QubitStateOrTop(QubitState(1))
-            return
+        self.set_top(qubit)
+        self.qu_reg[qubit] = QubitStateOrTop(QubitState(1))
 
-        qs = reg.get_qubit_state()
-        idx = self.index_in_state(qubit)
-        new_qs = QubitState(qs.get_n_qubits())
-        new_qs.clear()
+        # reg = self.qu_reg[qubit]
+        # if reg.is_top() or self.purity_test(qubit):
+        #     self.qu_reg[qubit] = QubitStateOrTop(QubitState(1))
+        #     return
 
-        for key, amp in qs.state.items():
-            if not key[idx]:
-                new_qs.state[key] = amp
+        # qs = reg.get_qubit_state()
+        # idx = self.index_in_state(qubit)
+        # new_qs = QubitState(qs.get_n_qubits())
+        # new_qs.clear()
 
-        new_qs.remove_zero_entries()
-        new_qs.normalize()
+        # for key, amp in qs.state.items():
+        #     if not key[idx]:
+        #         new_qs.state[key] = amp
 
-        for i, r in enumerate(self.qu_reg):
-            if r.is_qubit_state() and id(r.get_qubit_state()) == id(qs):
-                self.qu_reg[i] = QubitStateOrTop(new_qs)
+        # new_qs.remove_zero_entries()
+        # new_qs.normalize()
+
+        # for i, r in enumerate(self.qu_reg):
+        #     if r.is_qubit_state() and id(r.get_qubit_state()) == id(qs):
+        #         self.qu_reg[i] = QubitStateOrTop(new_qs)
 
     def separate(self, qubit: int) -> None:
         reg = self.qu_reg[qubit]
