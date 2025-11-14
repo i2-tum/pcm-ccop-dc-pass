@@ -36,6 +36,7 @@ def my_random_circuit(
     conditional=False,
     reset=False,
     seed=None,
+    ccop_density=0.1,
     num_operand_distribution: dict = None,
 ):
     """Generate random circuit of arbitrary size and form.
@@ -265,10 +266,7 @@ def my_random_circuit(
         # conditional check is outside the two loops to make the more common case of no conditionals
         # faster, since in Python we don't have a compiler to do this for us.
         if conditional and layer_number != 0:
-            is_conditional = rng.random(size=len(gate_specs)) < 0.1
-            condition_values = rng.integers(
-                0, 1 << min(num_qubits, 63), size=np.count_nonzero(is_conditional)
-            )
+            is_conditional = rng.random(size=len(gate_specs)) < ccop_density
             for gate, q_start, q_end, p_start, p_end, is_cond in zip(
                 gate_specs["class"],
                 q_indices[:-1],
@@ -278,9 +276,18 @@ def my_random_circuit(
                 is_conditional,
             ):
                 operation = gate(*parameters[p_start:p_end])
-                if is_cond:
-                    # Pick a random subset of qubits to measure
-                    num_meas = rng.integers(1, num_qubits + 1)
+                if is_cond and gate != Reset:
+                    # This allows that the probability of measuring 1 or num_qubits is higher
+                    # Define weights that bias toward measuring 1 and num_qubits
+                    weights = np.ones(num_qubits) # start uniform
+                    weights[0] = 5 # bias toward 1
+                    weights[-1] = 5 # bias toward num_qubits
+
+                    # Normalize to sum to 1
+                    weights = weights / weights.sum()
+
+                    # Sample with weights
+                    num_meas = rng.choice(np.arange(1, num_qubits + 1), p=weights)
                     meas_qubits = rng.choice(qc.qubits, size=num_meas, replace=False)
                     
                     bits = [] # List to store the classical bits corresponding to measured qubits
@@ -289,15 +296,14 @@ def my_random_circuit(
                         qc.measure(q, cr[qc.qubits.index(q)])
                         # Store the corresponding classical bit for building the condition
                         bits.append(cr[qc.qubits.index(q)])
-                    
+
+                    condition = None
                     if num_meas == 1:
                         bit_val = int(rng.choice([0, 1]))
-                        with qc.if_test((bits[0], bit_val)):
-                            qc.append(CircuitInstruction(operation=operation, qubits=qubits[q_start:q_end]))
+                        condition = (bits[0], bit_val)
                     elif num_meas == num_qubits:
                         val = int(rng.integers(0, 2 ** num_qubits))
-                        with qc.if_test((cr, val)):
-                            qc.append(CircuitInstruction(operation=operation, qubits=qubits[q_start:q_end]))
+                        condition = (cr, val)
                     else:
                         # Build a random Boolean expression over the measured bits
                         condition = bits[0]
@@ -313,9 +319,46 @@ def my_random_circuit(
                                 condition = expr.bit_or(condition, bit)
                             elif op == "xor":
                                 condition = expr.bit_xor(condition, bit)
-                        # Apply the gate under this random Boolean condition
-                        with qc.if_test(condition):
-                            qc.append(CircuitInstruction(operation=operation, qubits=qubits[q_start:q_end]))
+
+                    make_else = rng.random() < 0.5  
+                    # Apply the gate under a boolean expression condition
+                    with qc.if_test(condition) as else_:
+                        qc.append(CircuitInstruction(operation=operation, qubits=qubits[q_start:q_end]))
+                        
+                        num_extra_ops = rng.integers(0, 4)
+
+                        for _ in range(num_extra_ops):
+                            extra_gate = rng.choice(gates, p=distribution)
+                            if extra_gate["class"] != Reset:
+                                num_q = extra_gate["num_qubits"]
+                                extra_qubits = rng.choice(qc.qubits, size=num_q, replace=False)
+                                if extra_gate["num_params"] > 0:
+                                    extra_params = rng.uniform(0, 2 * np.pi, size=extra_gate["num_params"])
+                                    extra_operation = extra_gate["class"](*extra_params)
+                                else:
+                                    extra_operation = extra_gate["class"]()
+
+                                qc.append(CircuitInstruction(operation=extra_operation, qubits=extra_qubits))
+                    if make_else:
+                        with else_:
+                            num_else_ops = rng.integers(1, 6)
+
+                            for _ in range(num_else_ops):
+                                extra_gate = rng.choice(gates, p=distribution)
+                                if extra_gate["class"] != Reset:
+                                    num_q = extra_gate["num_qubits"]
+                                    extra_qubits = rng.choice(qc.qubits, size=num_q, replace=False)
+                                    if extra_gate["num_params"] > 0:
+                                        extra_params = rng.uniform(0, 2 * np.pi, size=extra_gate["num_params"])
+                                        extra_operation = extra_gate["class"](*extra_params)
+                                    else:
+                                        extra_operation = extra_gate["class"]()
+
+                                    qc.append(CircuitInstruction(operation=extra_operation, qubits=extra_qubits))
+                    
+                    # Reset the qubits that were measured
+                    for q in meas_qubits:
+                        qc.reset(q)
                 else:
                     qc.append(CircuitInstruction(operation=operation, qubits=qubits[q_start:q_end]))
         else:
