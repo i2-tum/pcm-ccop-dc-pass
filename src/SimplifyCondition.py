@@ -83,6 +83,8 @@ class SimplifyCondition:
                 if r.always_false:
                     return l
                 if l.always_true:
+                    if r.always_true:
+                        return CondResult(always_false=True)
                     return CondResult(expr_node=expr.bit_not(r.expr))
                 if r.always_true:
                     return CondResult(expr_node=expr.bit_not(l.expr))
