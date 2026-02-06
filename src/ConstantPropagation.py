@@ -14,7 +14,7 @@ import numpy as np
 from UnionTable import UnionTable
 from util.ActivationState import ActivationState
 from util.BitState import BitState
-from util.ProbabilisticGate import ProbabilisticGate, BigProbabilisticGate
+from util.ProbabilisticGate import ProbabilisticGate
 from SimplifyCondition import SimplifyCondition
 import random
 
@@ -124,28 +124,79 @@ class ConstantPropagation:
                     else:
                         clbit_states[cargs[0]] = BitState.ONE
                 elif table[ind].is_qubit_state() and table[ind].get_qubit_state().get_n_qubits() <= max_ent_group_size:
-                    state_vector =  table[ind].get_qubit_state().to_state_vector()
+                    # Old implementation (kept for reference)
+                    # state_vector =  table[ind].get_qubit_state().to_state_vector()
+                    # rot = cls._synthesize_rotation(state_vector, True)
+                    # inst = rot.to_instruction()
+                    #
+                    # targets = table.qubits_in_state(table[ind].get_qubit_state())
+                    # new_circ.append(inst, targets)
+                    #
+                    # state = table[ind].get_qubit_state()
+                    # probs_big_prob_gate = []
+                    # gates_ind_big_prob_gate = []
+                    # for k, v in state:
+                    #     gates_ind_big_prob_gate_curr = []
+                    #     i = 0
+                    #     probs_big_prob_gate.append(abs(v)**2)
+                    #     for kk in k:
+                    #         if kk:
+                    #             gates_ind_big_prob_gate_curr.append((XGate(), [targets[i]]))
+                    #         i += 1
+                    #     gates_ind_big_prob_gate.append(gates_ind_big_prob_gate_curr)
+                    #
+                    # big_prob_gate = BigProbabilisticGate(probs_big_prob_gate, gates_ind_big_prob_gate, len(targets), cargs[0])
+                    # new_circ.append(big_prob_gate, targets)
+                    #
+                    # table.set_top(ind)
+                    # clbit_states[cargs[0]] = BitState.NOT_KNOWN
+
+                    state = table[ind].get_qubit_state()
+                    idx = table.index_in_state(ind)
+                    prob_meas_1 = state.probability_measure_one(idx)
+
+                    targets = table.qubits_in_state(state)
+                    targets_rest = [q for q in targets if q != ind]
+                    target_pos = {q: i for i, q in enumerate(targets)}
+
+                    state_vector = state.to_state_vector()
                     rot = cls._synthesize_rotation(state_vector, True)
                     inst = rot.to_instruction()
-
-                    targets = table.qubits_in_state(table[ind].get_qubit_state())
                     new_circ.append(inst, targets)
-                    
-                    state = table[ind].get_qubit_state()
-                    probs_big_prob_gate = []
-                    gates_ind_big_prob_gate = []
-                    for k, v in state:
-                        gates_ind_big_prob_gate_curr = []
-                        i = 0
-                        probs_big_prob_gate.append(abs(v)**2)
-                        for kk in k:
-                            if kk:
-                                gates_ind_big_prob_gate_curr.append((XGate(), [targets[i]]))
-                            i += 1
-                        gates_ind_big_prob_gate.append(gates_ind_big_prob_gate_curr)
 
-                    big_prob_gate = BigProbabilisticGate(probs_big_prob_gate, gates_ind_big_prob_gate, len(targets), cargs[0])
-                    new_circ.append(big_prob_gate, targets)
+                    inst_if_one = []
+                    inst_if_zero = []
+
+                    if targets_rest:
+                        n_rest = len(targets_rest)
+                        vec0 = np.zeros(1 << n_rest, dtype=complex)
+                        vec1 = np.zeros(1 << n_rest, dtype=complex)
+
+                        for key, amp in state:
+                            rest_key = tuple(b for i, b in enumerate(key) if i != idx)
+                            rest_idx = sum((1 << i) if bit else 0 for i, bit in enumerate(rest_key))
+                            if key[idx]:
+                                vec1[rest_idx] += amp
+                            else:
+                                vec0[rest_idx] += amp
+
+                        rot0 = cls._synthesize_rotation(vec0, False)
+                        rot1 = cls._synthesize_rotation(vec1, False)
+
+                        rest_positions = [target_pos[q] for q in targets_rest]
+                        inst_if_zero.append((rot0.to_instruction(), rest_positions))
+                        inst_if_one.append((rot1.to_instruction(), rest_positions))
+
+                    inst_if_one.append((XGate(), [target_pos[ind]]))
+
+                    prb_gate = ProbabilisticGate(
+                        prob_meas_1,
+                        inst_if_one,
+                        inst_if_zero,
+                        len(targets),
+                        cargs[0],
+                    )
+                    new_circ.append(prb_gate, targets)
 
                     table.set_top(ind)
                     clbit_states[cargs[0]] = BitState.NOT_KNOWN
@@ -163,10 +214,44 @@ class ConstantPropagation:
                     if _prob_meas_1 == 1.0: # Qubit is in the state |1>
                         new_circ.append(XGate(), qargs, cargs) # Apply X(ind) -> |0>
                     elif _prob_meas_0 != 1.0 and _prob_meas_1 != 1.0: 
-                        state_vector =  table[ind].get_qubit_state().to_state_vector()
-                        rot = cls._synthesize_rotation(state_vector, True)
-                        inst = rot.to_instruction()
-                        new_circ.append(inst, qargs)
+                        state = table[ind].get_qubit_state()
+                        if state.get_n_qubits() <= max_ent_group_size:
+                            idx = table.index_in_state(ind)
+
+                            targets = table.qubits_in_state(state)
+                            targets_rest = [q for q in targets if q != ind]
+
+                            state_vector = state.to_state_vector()
+                            rot = cls._synthesize_rotation(state_vector, True)
+                            inst = rot.to_instruction()
+                            new_circ.append(inst, targets)
+
+                            if targets_rest:
+                                n_rest = len(targets_rest)
+                                vec0 = np.zeros(1 << n_rest, dtype=complex)
+                                vec1 = np.zeros(1 << n_rest, dtype=complex)
+
+                                for key, amp in state:
+                                    rest_key = tuple(b for i, b in enumerate(key) if i != idx)
+                                    rest_idx = sum((1 << i) if bit else 0 for i, bit in enumerate(rest_key))
+                                    if key[idx]:
+                                        vec1[rest_idx] += amp
+                                    else:
+                                        vec0[rest_idx] += amp
+
+                                rot0 = cls._synthesize_rotation(vec0, False)
+                                rot1 = cls._synthesize_rotation(vec1, False)
+
+                                prb_gate = ProbabilisticGate(
+                                    _prob_meas_1,
+                                    [(rot1.to_instruction(), list(range(n_rest)))],
+                                    [(rot0.to_instruction(), list(range(n_rest)))],
+                                    n_rest,
+                                    cargs[0],
+                                )
+                                new_circ.append(prb_gate, targets_rest)
+                        else:
+                            new_circ.append(instr, qargs, cargs)
                 else:
                     new_circ.append(instr, qargs, cargs)
 
@@ -247,30 +332,42 @@ class ConstantPropagation:
             name_lc = instr.name.lower()
 
             if isinstance(instr, ProbabilisticGate):
+            # Old implementation (kept for reference)
+                # creg_from_meas = instr.get_creg_from_meas()
+                # prob = instr.get_probability()
+                #
+                # # Compiles the probabilistic gate
+                # if random.random() < prob:
+                #     new_circ.append(instr.get_base_gate(), qargs, cargs)
+                #     clbit_states[creg_from_meas] = BitState.ONE
+                # else:
+                #     clbit_states[creg_from_meas] = BitState.ZERO
+            # elif isinstance(instr, BigProbabilisticGate):
+            #     creg_from_meas = instr.get_creg_from_meas()
+            #     creg_from_meas_state = BitState.ZERO # Default value
+            #     probs = instr.get_probabilities()
+            #     gates_and_ind = instr.get_gates()
+            #     # Choose one of the element of probs_and_gates according to the probabilities
+            #     weights = [p for p in probs]
+            #     # Use random.choices to pick one sequence based on weights
+            #     selected_seq = random.choices(gates_and_ind, weights=weights, k=1)[0]
+            #     for g, indices in selected_seq:
+            #         new_circ.append(g, indices)
+            #         if indices[0] == creg_from_meas._index:
+            #             creg_from_meas_state = BitState.ONE
+            #     clbit_states[creg_from_meas] = creg_from_meas_state
+
                 creg_from_meas = instr.get_creg_from_meas()
                 prob = instr.get_probability()
 
-                # Compiles the probabilistic gate
-                if random.random() < prob:
-                    new_circ.append(instr.get_base_gate(), qargs, cargs)
-                    clbit_states[creg_from_meas] = BitState.ONE
-                else:
-                    clbit_states[creg_from_meas] = BitState.ZERO
-            elif isinstance(instr, BigProbabilisticGate):
-                creg_from_meas = instr.get_creg_from_meas()
-                creg_from_meas_state = BitState.ZERO # Default value
-                probs = instr.get_probabilities()
-                gates_and_ind = instr.get_gates()
-                # Choose one of the element of probs_and_gates according to the probabilities
-                weights = [p for p in probs]
-                # Use random.choices to pick one sequence based on weights
-                selected_seq = random.choices(gates_and_ind, weights=weights, k=1)[0]
-                for g, indices in selected_seq:
-                    new_circ.append(g, indices)
-                    if indices[0] == creg_from_meas._index:
-                        creg_from_meas_state = BitState.ONE
-                clbit_states[creg_from_meas] = creg_from_meas_state
-                    
+                choose_one = random.random() < prob
+                insts = instr.get_inst_if_one() if choose_one else instr.get_inst_if_zero()
+                for gate, indices in insts:
+                    new_circ.append(gate, [qargs[i] for i in indices])
+
+                if creg_from_meas is not None:
+                    clbit_states[creg_from_meas] = BitState.ONE if choose_one else BitState.ZERO
+
 
             elif name_lc == MEASURE_NAME:
                 # When a measurement is performed the bit states of the corresponding measurement operation are set to NOT_KNOWN
