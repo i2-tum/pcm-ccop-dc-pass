@@ -1,8 +1,12 @@
 from typing import List, Tuple, Dict, Optional
 from copy import deepcopy
 
-from QuState import QubitState, QubitStateOrTop, EPS
-from util.ActivationState import *
+if __package__:
+    from .QuState import QubitState, QubitStateOrTop, EPS
+    from .util.ActivationState import *
+else:
+    from QuState import QubitState, QubitStateOrTop, EPS
+    from util.ActivationState import *
 
 class UnionTable:
     def __init__(self, n_qubits: int):

@@ -11,11 +11,18 @@ from functools import reduce
 
 import numpy as np
 
-from UnionTable import UnionTable
-from util.ActivationState import ActivationState
-from util.BitState import BitState
-from util.ProbabilisticGate import ProbabilisticGate
-from SimplifyCondition import SimplifyCondition
+if __package__:
+    from .UnionTable import UnionTable
+    from .util.ActivationState import ActivationState
+    from .util.BitState import BitState
+    from .util.ProbabilisticGate import ProbabilisticGate
+    from .SimplifyCondition import SimplifyCondition
+else:
+    from UnionTable import UnionTable
+    from util.ActivationState import ActivationState
+    from util.BitState import BitState
+    from util.ProbabilisticGate import ProbabilisticGate
+    from SimplifyCondition import SimplifyCondition
 import random
 
 __all__ = ["ConstantPropagation"]
@@ -113,7 +120,7 @@ class ConstantPropagation:
                         inst = rot.to_instruction()
                         new_circ.append(inst, qargs)
                         # Append probabilistic gate
-                        prb_gate = ProbabilisticGate(XGate(), _prob_meas_1, cargs[0])
+                        prb_gate = ProbabilisticGate(_prob_meas_1, [(XGate(), [0])], [], 1, cargs[0])
                         new_circ.append(prb_gate, qargs)
 
                         clbit_states[cargs[0]] = BitState.NOT_KNOWN
@@ -215,13 +222,7 @@ class ConstantPropagation:
                                 rot0 = cls._synthesize_rotation(vec0, False)
                                 rot1 = cls._synthesize_rotation(vec1, False)
 
-                                prb_gate = ProbabilisticGate(
-                                    _prob_meas_1,
-                                    [(rot1.to_instruction(), list(range(n_rest)))],
-                                    [(rot0.to_instruction(), list(range(n_rest)))],
-                                    n_rest,
-                                    cargs[0],
-                                )
+                                prb_gate = ProbabilisticGate(_prob_meas_1, [(rot1.to_instruction(), list(range(n_rest)))], [(rot0.to_instruction(), list(range(n_rest)))], n_rest, None)
                                 new_circ.append(prb_gate, targets_rest)
                         else:
                             new_circ.append(instr, qargs, cargs)

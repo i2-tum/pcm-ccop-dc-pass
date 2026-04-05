@@ -1,6 +1,10 @@
 from qiskit.circuit.classical import expr
 from qiskit.circuit import Clbit
-from util.BitState import BitState
+
+if __package__:
+    from .util.BitState import BitState
+else:
+    from util.BitState import BitState
 
 
 class CondResult:
