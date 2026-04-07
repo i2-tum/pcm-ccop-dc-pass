@@ -196,7 +196,7 @@ class UnionTable:
             # Remove the idx-th bit to form the reduced key
             reduced = tuple(b for i, b in enumerate(key) if i != idx)
 
-            # Only set if not present OR present as exact zero (to mirror C++'s == 0 check)
+            # Only set if not present OR present as exact zero
             if (reduced not in new_rest.state) or (new_rest.state[reduced] == 0):
                 denom = alpha if (key[idx] is False) else beta
                 new_rest.state[reduced] = value / denom
