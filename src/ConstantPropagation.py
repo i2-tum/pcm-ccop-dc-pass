@@ -65,12 +65,13 @@ IF_ELSE_NAME = "if_else"
 # ConstantPropagation main class
 class ConstantPropagation:
     """Run the *constant-propagation* analysis/optimisation on a circuit."""
-
-    MAX_AMPLITUDES: int = 32
+    DEFAULT_MAX_AMPLITUDES: int = 1024
+    DEFAULT_MAX_ENT_GROUP_SIZE: int = 16
     
     @classmethod
-    def _propagate(cls, circuit: QuantumCircuit, max_amplitudes: int | None = None, max_ent_group_size = 1, table: UnionTable | None = None) -> Tuple[UnionTable, QuantumCircuit]:
-        max_amplitudes = max_amplitudes or cls.MAX_AMPLITUDES
+    def _propagate(cls, circuit: QuantumCircuit, max_amplitudes: int | None = None, max_ent_group_size: int = DEFAULT_MAX_ENT_GROUP_SIZE, table: UnionTable | None = None) -> Tuple[UnionTable, QuantumCircuit]:
+        if max_amplitudes is None:
+            max_amplitudes = cls.DEFAULT_MAX_AMPLITUDES
 
         clbit_states: dict[Clbit, BitState] = {}
         table = table or UnionTable(circuit.num_qubits)
@@ -242,11 +243,11 @@ class ConstantPropagation:
         return table, new_circ
 
     @classmethod
-    def optimize(cls, circuit: QuantumCircuit, max_amplitudes: int | None = None, max_ent_group_size = 1) -> QuantumCircuit:
+    def optimize(cls, circuit: QuantumCircuit, max_amplitudes: int | None = None, max_ent_group_size: int | None = None) -> Tuple[UnionTable, QuantumCircuit]:
         """Perform constant-propagation in-place on *circuit."""
-        table, new_circ = cls._propagate(circuit, max_amplitudes, max_ent_group_size)
+        _, new_circ = cls._propagate(circuit, max_amplitudes, max_ent_group_size)
 
-        return table, new_circ
+        return new_circ
     
     @classmethod
     def generate_instance(cls, circuit: QuantumCircuit) -> QuantumCircuit:
