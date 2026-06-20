@@ -1,6 +1,6 @@
 # Optimization pass for simplifying Classically Controlled Operations in Dynamic Circuits 
 
-This method is based on the manuscript ([preprint link coming soon]).
+This method is based on the manuscript [Compile-Time Simplification of Classically Controlled Operations in Dynamic Circuits](https://ieeexplore.ieee.org/abstract/document/11520473).
 
 This framework takes a Qiskit dynamic circuit containing mid-circuit measurements, resets, and classical `if_test` controls, and rewrites it into a **probabilistic circuit**.
 
